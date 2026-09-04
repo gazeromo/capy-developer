@@ -35,7 +35,7 @@ def _default_verification_temp_root() -> Path:
         # The accepted DevKit uses AF_UNIX even for an empty connection set.
         # A drive-root child keeps its nested simulator socket below Windows'
         # sockaddr_un limit; operators can override this managed root.
-        return Path(tempfile.gettempdir()).anchor / "cv"
+        return Path(Path(tempfile.gettempdir()).anchor) / "cv"
     return Path("/tmp/cv") if Path("/tmp").is_dir() else Path(tempfile.gettempdir()) / "cv"
 
 
