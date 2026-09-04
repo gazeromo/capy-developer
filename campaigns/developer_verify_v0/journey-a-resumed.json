@@ -1,0 +1,32 @@
+{
+  "schema": "capy.developer-verify-journey/v0",
+  "journey": "A-resumed-final",
+  "adapter": "mcp",
+  "status": "passed",
+  "project_id": "prj_d4e8844de464487eb68cb22038503ab2",
+  "session_id": "ses_a40d4de8cd7d4430838f82b9fcbba3a0",
+  "application_id": "capy.csvpriceaverager",
+  "base_commit": "e93bb4558cd87c34847a3e1ba19d75b77f2df0a5",
+  "toolchain": {
+    "release_binding_commit": "8c4fec7f814a62ded441786b8eba28af14d1aa2d",
+    "authoring_bundle_sha256": "dc2c27611d12ecb12e1a929252a51e177537d8f0e4fba86de5ed93edae886d5c",
+    "wheel_sha256": "46f0b7865491054991b855d3bf709a445b7cc730077aaca2059cc095c685b30d"
+  },
+  "passed_attempt": {
+    "candidate_commit": "e93bb4558cd87c34847a3e1ba19d75b77f2df0a5",
+    "candidate_tree": "85bf72f6aa58f719261d8230445bcb3f63eae5af",
+    "verification_id": "ver_e69583724fb7472f810af478b1b7d8d8",
+    "classification": "VERIFIED",
+    "stages_passed": 9,
+    "archive_sha256": "00dea5251ec84fd9ff727b31c6067ea4601c06f8af7d4a28f5e659952780cf13",
+    "archive_size_bytes": 4003
+  },
+  "hidden_oracle": {
+    "valid": {"status": "passed", "row_count": "2", "average_price": "15.15", "artifacts": []},
+    "invalid": {"status": "passed", "failure_code": "CSV_PRICE_INVALID", "exit_code": 2},
+    "empty": {"status": "passed", "failure_code": "CSV_EMPTY", "exit_code": 2},
+    "archive_rehash": "matched"
+  },
+  "finish": {"status": "COMPLETED", "final_commit": "e93bb4558cd87c34847a3e1ba19d75b77f2df0a5", "dirty": false},
+  "developer_ceremony": {"repository_path_choices": 0, "git_choices": 0, "devkit_choices": 0}
+}

@@ -1,0 +1,26 @@
+{
+  "schema": "capy.developer-verify-journey/v0",
+  "journey": "final-wheel-mcp-smoke",
+  "adapter": "mcp",
+  "status": "verification_passed_with_application_oracle_deviation",
+  "developer_wheel_sha256": "eec5b97f7d4c7e9778b32517238c70c37f8ad132fb6a063a7595fa62d56ba373",
+  "project_id": "prj_05bf9a6289d249848c35d9196d3a0e29",
+  "session_id": "ses_f776d4e308be40c7846197882488582e",
+  "base_commit": "630046570777777adc11bb3122dd2abcf615d724",
+  "passed_attempt": {
+    "candidate_commit": "0b2e87ae779ff60352d6486049dc5ab50d84a0d4",
+    "candidate_tree": "572e54bea761ecd8411bf4817510c5e112c5cd91",
+    "verification_id": "ver_fd51609322b84061a0ddb39259ebc119",
+    "classification": "VERIFIED",
+    "stages_passed": 9,
+    "archive_sha256": "c8642b4ad0dd388105627b53ee086efed6e628ae875e740134823c7a6bf0a758",
+    "archive_size_bytes": 3926
+  },
+  "finish": {"status": "COMPLETED", "dirty": false},
+  "hidden_oracle_observation": {
+    "valid": {"status": "passed", "row_count": "2", "average_price": "15.15"},
+    "invalid": {"status": "application_failed_oracle", "observed": "SCRIPT_EXIT_INVALID: 1"},
+    "empty": {"status": "application_failed_oracle", "observed": "SCRIPT_EXIT_INVALID: 1"}
+  },
+  "acceptance_use": "Exact-final-wheel smoke only; hidden-oracle acceptance is supplied by Journey A."
+}

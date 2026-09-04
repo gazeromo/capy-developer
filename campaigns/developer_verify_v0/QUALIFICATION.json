@@ -1,0 +1,49 @@
+{
+  "schema": "capy.developer-verify-qualification/v0",
+  "qualified_at": "2026-09-04T16:25:31Z",
+  "repository": "gazeromo/capy-developer",
+  "base_commit": "124bf634ec023f064ebd7f051d049de65ff3228f",
+  "source_commit": "034ee45c36616267596b97d1a91fbcab36e628fa",
+  "source_tree": "f813cbf3a96e0fb4b9f393a638fcbe125b0699ae",
+  "version": "0.2.0",
+  "qualification": {
+    "local": "78 passed",
+    "cross_platform_run_id": 33892609472,
+    "ubuntu": "78 passed",
+    "macos": "78 passed",
+    "windows": "78 passed",
+    "journey_a_mcp": "passed and completed clean",
+    "journey_b_json_cli": "failed causally, repaired narrowly, passed and completed clean",
+    "journey_candidate_tree_identity": "matched",
+    "journey_archive_identity": "matched",
+    "hidden_oracle": "valid, invalid, and empty passed against Journey A archive",
+    "independent_fix_delta_review": "no actionable P0-P3 findings"
+  },
+  "package": {
+    "filename": "capy_developer-0.2.0-py3-none-any.whl",
+    "sha256": "eec5b97f7d4c7e9778b32517238c70c37f8ad132fb6a063a7595fa62d56ba373",
+    "size_bytes": 85294,
+    "clean_snapshot_builds": 2,
+    "byte_identical": true,
+    "fresh_offline_install": "passed with --no-index and --no-deps",
+    "installed_doctor": "passed"
+  },
+  "devkit": {
+    "current_release_binding_commit": "8c4fec7f814a62ded441786b8eba28af14d1aa2d",
+    "current_source_commit": "e4462973d94584a75a1596f1b06a425a8da7f20d",
+    "current_authoring_bundle_sha256": "dc2c27611d12ecb12e1a929252a51e177537d8f0e4fba86de5ed93edae886d5c",
+    "current_wheel_sha256": "46f0b7865491054991b855d3bf709a445b7cc730077aaca2059cc095c685b30d",
+    "historical_release_binding_commit": "0cf018faa02ade73ab0805aa0617c55ce36fa7b1",
+    "historical_authoring_bundle_sha256": "cb7e4073a99bf8596509af02f466f90b5792d1d8075dffab0f27bbb2df0679e8",
+    "historical_wheel_sha256": "165faba51b56b667b087228e1c556b1e2369d0e61bb469785ddff1bad9d6e2d0",
+    "historical_exact_resolution": "passed",
+    "windows_connection_bearing_conformance_claimed": false
+  },
+  "boundary_changes": {
+    "application_repositories": 0,
+    "runtime": 0,
+    "production": 0,
+    "provider_secrets_accessed": 0,
+    "publication_or_deployment": 0
+  }
+}

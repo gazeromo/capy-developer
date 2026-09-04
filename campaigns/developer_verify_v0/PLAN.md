@@ -1,6 +1,6 @@
 # CAPY-DEVELOPER-VERIFY-V0
 
-Status: active bounded implementation task.
+Status: qualified and ready for strict fast-forward acceptance.
 
 If this task encounters a small implementation or environment blocker,
 repair it within this task and continue; do not create a new gate or request
@@ -17,11 +17,11 @@ The authoritative implementation contract is the owner-provided plan
 - Required base: `124bf634ec023f064ebd7f051d049de65ff3228f`
 - Base tree: `fd119733c5219c0d7c50544eeaad351f66abc44a`
 - Branch: `codex/developer-verify-v0`
-- Control authorization branch/head: `codex/developer-verify-v0` / `6e50de3`
-- DevKit release binding: `0cf018faa02ade73ab0805aa0617c55ce36fa7b1`
-- DevKit implementation: `55fc109b5f494086c03560794e7be74d75f1d93f`
-- DevKit bundle: `cb7e4073a99bf8596509af02f466f90b5792d1d8075dffab0f27bbb2df0679e8`
-- DevKit wheel: `165faba51b56b667b087228e1c556b1e2369d0e61bb469785ddff1bad9d6e2d0`
+- Control authorization/resumption head: `056515d2d2162af2c87b20de15c7cca17634fae5`
+- DevKit release binding: `8c4fec7f814a62ded441786b8eba28af14d1aa2d`
+- DevKit implementation: `e4462973d94584a75a1596f1b06a425a8da7f20d`
+- DevKit bundle: `dc2c27611d12ecb12e1a929252a51e177537d8f0e4fba86de5ed93edae886d5c`
+- DevKit wheel: `46f0b7865491054991b855d3bf709a445b7cc730077aaca2059cc095c685b30d`
 - FedEx main: `de79fd1d0c08ab01f85b5d25a7a6d69a672c5b94`
 - Proforma main: `c21a308ec539898da8b6801ffc54845826bfd6cf`
 - Runtime main: `61a71a1067183343504305337128ca0af083542f`

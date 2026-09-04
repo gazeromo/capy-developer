@@ -1,0 +1,22 @@
+{
+  "schema": "capy.cross-platform-qualification/v0",
+  "status": "passed",
+  "repository": "gazeromo/capy-developer",
+  "commit": "034ee45c36616267596b97d1a91fbcab36e628fa",
+  "tree": "f813cbf3a96e0fb4b9f393a638fcbe125b0699ae",
+  "run_id": 33892609472,
+  "run_url": "https://github.com/gazeromo/capy-developer/actions/runs/33892609472",
+  "python": "3.11",
+  "tests_per_platform": 78,
+  "platforms": {
+    "ubuntu-latest": "78 passed",
+    "macos-latest": "78 passed",
+    "windows-latest": "78 passed"
+  },
+  "devkit": {
+    "release_binding_commit": "8c4fec7f814a62ded441786b8eba28af14d1aa2d",
+    "authoring_bundle_sha256": "dc2c27611d12ecb12e1a929252a51e177537d8f0e4fba86de5ed93edae886d5c",
+    "wheel_sha256": "46f0b7865491054991b855d3bf709a445b7cc730077aaca2059cc095c685b30d",
+    "windows_connection_bearing_conformance_claimed": false
+  }
+}

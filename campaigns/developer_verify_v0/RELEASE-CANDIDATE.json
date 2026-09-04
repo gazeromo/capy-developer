@@ -1,0 +1,48 @@
+{
+  "schema": "capy.developer-verify-release-candidate/v0",
+  "status": "qualified-candidate",
+  "repository": "gazeromo/capy-developer",
+  "base_commit": "124bf634ec023f064ebd7f051d049de65ff3228f",
+  "source_commit": "034ee45c36616267596b97d1a91fbcab36e628fa",
+  "source_tree": "f813cbf3a96e0fb4b9f393a638fcbe125b0699ae",
+  "qualification_receipt": {
+    "path": "campaigns/developer_verify_v0/QUALIFICATION.json",
+    "sha256": "6cd85f854dde5c3b29ab3b6c81cabbce3a5af7b8b4ba4e958f7b7653132cfdf6"
+  },
+  "journeys": {
+    "mcp": {
+      "path": "campaigns/developer_verify_v0/journey-a-resumed.json",
+      "sha256": "fea21b46b3e55ae7d3320730fdfb0e644d03ce4b1f40861900f98a4578eb09c7"
+    },
+    "json_cli": {
+      "path": "campaigns/developer_verify_v0/journey-b-resumed.json",
+      "sha256": "dc5488f34e22ec3d2c111a59afeb88ef5c04bfe82d2cb292bb0152cf8a999bfd"
+    }
+  },
+  "wheel": {
+    "path": "release/capy_developer-0.2.0-py3-none-any.whl",
+    "sha256": "eec5b97f7d4c7e9778b32517238c70c37f8ad132fb6a063a7595fa62d56ba373",
+    "size_bytes": 85294,
+    "clean_snapshot_builds": 2,
+    "byte_identical": true,
+    "fresh_offline_install": "passed",
+    "installed_doctor": "passed"
+  },
+  "cross_platform_run": {
+    "id": 33892609472,
+    "url": "https://github.com/gazeromo/capy-developer/actions/runs/33892609472",
+    "head_sha": "034ee45c36616267596b97d1a91fbcab36e628fa",
+    "conclusion": "success",
+    "tests_per_platform": 78
+  },
+  "independent_review": {
+    "path": "campaigns/developer_verify_v0/REVIEWS.md",
+    "sha256": "0d6d9b66e8af4800fe5a5c106a4bc05352202a0bef66d54f8d6572351a831b7f",
+    "result": "no actionable P0-P3 findings"
+  },
+  "historical_toolchain_exact_resolution": "passed",
+  "windows_connection_bearing_conformance_claimed": false,
+  "runtime_or_application_source_changed": false,
+  "provider_or_production_accessed": false,
+  "published_or_deployed": false
+}

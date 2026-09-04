@@ -1,0 +1,35 @@
+{
+  "schema": "capy.developer-verify-journey/v0",
+  "journey": "B-resumed-final",
+  "adapter": "json-cli",
+  "status": "passed",
+  "project_id": "prj_d4e8844de464487eb68cb22038503ab2",
+  "session_id": "ses_d3f5d098353240fc89380b3558bf6211",
+  "application_id": "capy.csvpriceaverager",
+  "toolchain": {
+    "release_binding_commit": "8c4fec7f814a62ded441786b8eba28af14d1aa2d",
+    "authoring_bundle_sha256": "dc2c27611d12ecb12e1a929252a51e177537d8f0e4fba86de5ed93edae886d5c",
+    "wheel_sha256": "46f0b7865491054991b855d3bf709a445b7cc730077aaca2059cc095c685b30d"
+  },
+  "base": {
+    "commit": "ac91e462f3411521b73d36923a257f01360fe999",
+    "tree": "4c0cd1fe19206a56d2ff896a410b61d407594de7",
+    "verification_id": "ver_cc15fa67ae414e8f83c216d338518efc",
+    "result": "FAILED",
+    "classification": "CONFORMANCE_FAILED"
+  },
+  "repair": {
+    "description": "Changed only the deterministic fixture expectation from 999.99 to 2.00.",
+    "commit": "712bbdaa700a8e2ef6e7d7483003b2c77a84e5ca",
+    "tree": "85bf72f6aa58f719261d8230445bcb3f63eae5af"
+  },
+  "passed_attempt": {
+    "verification_id": "ver_afc4a599dbed4c6fb9da5dcd1b34f774",
+    "classification": "VERIFIED",
+    "stages_passed": 9,
+    "archive_sha256": "00dea5251ec84fd9ff727b31c6067ea4601c06f8af7d4a28f5e659952780cf13",
+    "archive_size_bytes": 4003
+  },
+  "finish": {"status": "COMPLETED", "final_commit": "712bbdaa700a8e2ef6e7d7483003b2c77a84e5ca", "dirty": false},
+  "developer_ceremony": {"repository_path_choices": 0, "git_choices": 0, "devkit_choices": 0}
+}
