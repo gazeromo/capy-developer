@@ -193,6 +193,33 @@ class CoreTestCase(unittest.TestCase):
         matches = self.core.search_projects("demo.new")["matches"]
         self.assertEqual([["demo.new"]], [match["application_ids"] for match in matches])
 
+    def test_import_uses_remote_default_metadata_not_dirty_checkout(self):
+        checkout, _ = self.fixture("dirty-metadata", "demo.main")
+        (checkout / "capability.toml").write_text(
+            'schema = "capy.script/dev-v0"\nid = "demo.dirty_only"\n', encoding="utf-8"
+        )
+        imported = self.core.import_project(str(checkout))
+        self.assertEqual(["demo.main"], imported["project"]["application_ids"])
+        self.assertEqual([], self.core.search_projects("demo.dirty_only")["matches"])
+
+    def test_import_uses_remote_default_metadata_not_feature_branch(self):
+        checkout, _ = self.fixture("feature-metadata", "demo.main")
+        git(["switch", "-c", "feature"], checkout)
+        (checkout / "capability.toml").write_text(
+            'schema = "capy.script/dev-v0"\nid = "demo.feature_only"\n', encoding="utf-8"
+        )
+        git(["config", "user.name", "Fixture"], checkout)
+        git(["config", "user.email", "fixture@localhost"], checkout)
+        git(["add", "capability.toml"], checkout)
+        git(["commit", "-m", "feature application"], checkout)
+        imported = self.core.import_project(str(checkout))
+        self.assertEqual(["demo.main"], imported["project"]["application_ids"])
+        result = self.core.start_development({
+            "idempotency_key": "main-after-feature", "request": "Prepare main.",
+            "existing": {"application_id": "demo.main"},
+        })
+        self.assertIn('id = "demo.main"', (Path(result["workspace"]["native_path"]) / "capability.toml").read_text())
+
     def test_legacy_bundle_requires_actual_wheel_digest(self):
         expected = "1" * 64
         lock = (
@@ -289,6 +316,11 @@ class CoreTestCase(unittest.TestCase):
         (second / "capy.project.toml").write_text(
             'schema = "capy.project/v0"\nproject_id = "prj_identity_first"\nname = "Second"\n', encoding="utf-8"
         )
+        git(["config", "user.name", "Fixture"], second)
+        git(["config", "user.email", "fixture@localhost"], second)
+        git(["add", "capy.project.toml"], second)
+        git(["commit", "-m", "conflicting identity"], second)
+        git(["push", "origin", "main"], second)
         self.core.import_project(str(first))
         with self.assertRaises(DeveloperError) as caught:
             self.core.import_project(str(second))

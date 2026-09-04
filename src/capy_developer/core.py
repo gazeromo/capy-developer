@@ -75,28 +75,21 @@ class DeveloperCore:
         before = checkout_facts(path)
         if not before["origin"]:
             raise DeveloperError("CANONICAL_ORIGIN_REQUIRED", "import requires an explicit canonical origin remote")
-        manifest = self._project_manifest(path)
-        applications = self._discover_applications(path, manifest)
+        self._checkout_metadata(path)  # Validate local paths; canonical values come from the remote base below.
+        default_branch = remote_default_branch(before["origin"], "main")
+        with tempfile.TemporaryDirectory(prefix="import-snapshot-", dir=self.config.cache_root) as temporary_text:
+            snapshot_root = Path(temporary_text)
+            snapshot_mirror = snapshot_root / "repository.git"
+            snapshot = snapshot_root / "checkout"
+            ensure_mirror(before["origin"], snapshot_mirror)
+            snapshot_base = mirror_base(snapshot_mirror, default_branch)
+            run_git(["--git-dir", str(snapshot_mirror), "worktree", "add", "--detach", str(snapshot), snapshot_base])
+            manifest, applications, lock = self._checkout_metadata(snapshot)
         if not applications:
             raise DeveloperError("CAPY_APPLICATION_MARKER_MISSING", "no explicit Capy application descriptor was found")
         repository_identity = normalize_repository(before["origin"])
-        default_branch = remote_default_branch(before["origin"], before["branch"] or "main")
         name = str(manifest.get("name") if manifest else path.name)
         now = utc_now()
-        for lock_candidate in (path / "capy.lock", path / "DEVKIT.lock"):
-            if lock_candidate.is_symlink():
-                raise DeveloperError("LOCK_PATH_INVALID", "DevKit lock may not be a symlink")
-        lock = read_lock(path)
-        if lock.source_path:
-            try:
-                relative_lock = str(Path(lock.source_path).resolve().relative_to(path))
-                lock = ToolchainLock(
-                    lock.schema, lock.contract, lock.repository, lock.commit, lock.wheel,
-                    lock.wheel_sha256, lock.bundle_sha256, relative_lock,
-                    lock.lock_status, lock.detail,
-                )
-            except ValueError:
-                raise DeveloperError("LOCK_PATH_INVALID", "DevKit lock path escaped the checkout")
         availability = self.toolchains.availability(lock)
         with operation_lock(self.config.operation_lock), self.db.connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -149,6 +142,26 @@ class DeveloperCore:
         if before != after:
             raise DeveloperError("IMPORTED_CHECKOUT_CHANGED", "import changed the developer checkout unexpectedly")
         return self._project_result(project_id, imported=True)
+
+    def _checkout_metadata(self, checkout: Path) -> tuple[dict | None, list[str], ToolchainLock]:
+        checkout = checkout.resolve(strict=True)
+        manifest = self._project_manifest(checkout)
+        applications = self._discover_applications(checkout, manifest)
+        for lock_candidate in (checkout / "capy.lock", checkout / "DEVKIT.lock"):
+            if lock_candidate.is_symlink():
+                raise DeveloperError("LOCK_PATH_INVALID", "DevKit lock may not be a symlink")
+        lock = read_lock(checkout)
+        if lock.source_path:
+            try:
+                relative_lock = str(Path(lock.source_path).resolve().relative_to(checkout.resolve()))
+                lock = ToolchainLock(
+                    lock.schema, lock.contract, lock.repository, lock.commit, lock.wheel,
+                    lock.wheel_sha256, lock.bundle_sha256, relative_lock,
+                    lock.lock_status, lock.detail,
+                )
+            except ValueError as exc:
+                raise DeveloperError("LOCK_PATH_INVALID", "DevKit lock path escaped the checkout") from exc
+        return manifest, applications, lock
 
     def _project_manifest(self, checkout: Path) -> dict | None:
         path = checkout / "capy.project.toml"
@@ -379,11 +392,13 @@ class DeveloperCore:
         with self.db.connect() as db:
             session = db.execute("SELECT * FROM sessions WHERE session_id=?", (session_id,)).fetchone()
             project = db.execute("SELECT * FROM projects WHERE project_id=?", (session["project_id"],)).fetchone()
+            normalized = json.loads(session["normalized_input"])
+            required_application = normalized["existing"].get("application_id")
         mirror = safe_resolve(self.config.repositories_root / f"{project['project_id']}.git", root=self.config.repositories_root)
         if project["repository_url"] != mirror.as_uri():
             ensure_mirror(project["repository_url"], mirror)
         base = mirror_base(mirror, project["default_branch"])
-        self._complete_workspace(session_id, project["project_id"], mirror, base)
+        self._complete_workspace(session_id, project["project_id"], mirror, base, required_application)
 
     def _prepare_new(self, session_id: str) -> None:
         with self.db.connect() as db:
@@ -458,13 +473,33 @@ class DeveloperCore:
             run_git(["remote", "add", "origin", repository.as_uri()], cwd=seed)
             run_git(["push", "origin", "main"], cwd=seed)
 
-    def _complete_workspace(self, session_id: str, project_id: str, mirror: Path, base: str) -> None:
+    def _complete_workspace(
+        self, session_id: str, project_id: str, mirror: Path, base: str,
+        required_application: str | None = None,
+    ) -> None:
         branch = f"capy/dev/{session_id}"
         worktree = safe_resolve(self.config.worktrees_root / project_id / session_id, root=self.config.worktrees_root)
         ensure_worktree(mirror, worktree, branch, base)
         actual = checkout_facts(worktree)
         if actual["commit"] != base or actual["branch"] != branch or actual["dirty"]:
             raise DeveloperError("WORKTREE_VALIDATION_FAILED", "prepared worktree does not match its recorded clean base")
+        _, applications, lock = self._checkout_metadata(worktree)
+        if not applications:
+            raise DeveloperError("CAPY_APPLICATION_MARKER_MISSING", "exact source base contains no Capy application descriptor")
+        availability = self.toolchains.availability(lock)
+        with self.db.connect() as db:
+            db.execute("DELETE FROM project_applications WHERE project_id=?", (project_id,))
+            for application_id in applications:
+                db.execute(
+                    "INSERT INTO project_applications(project_id,application_id,source) VALUES (?,?,?)",
+                    (project_id, application_id, "exact_base"),
+                )
+            self._store_lock(db, project_id, lock, availability)
+        if required_application and required_application not in applications:
+            raise DeveloperError(
+                "APPLICATION_NOT_AT_BASE",
+                "selected application is not present at the synchronized exact source base",
+            )
         now = utc_now()
         with self.db.connect() as db:
             db.execute(
