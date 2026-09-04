@@ -10,6 +10,11 @@ from .errors import DeveloperError
 from .mcp import serve
 
 
+class JsonArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str):
+        raise DeveloperError("CLI_ARGUMENT_INVALID", message)
+
+
 def _read_input(path: str | None, inline: str | None) -> dict:
     if path and inline:
         raise DeveloperError("CLI_INPUT_CONFLICT", "use only one of --input and --input-json")
@@ -30,7 +35,7 @@ def _read_input(path: str | None, inline: str | None) -> dict:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(prog="capy-dev")
+    root = JsonArgumentParser(prog="capy-dev")
     commands = root.add_subparsers(dest="command", required=True)
     commands.add_parser("doctor")
 
@@ -91,4 +96,3 @@ def main(arguments: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -25,7 +25,22 @@ TOOLS = [
             "properties": {
                 "idempotency_key": {"type": "string", "minLength": 1},
                 "request": {"type": "string", "minLength": 1},
-                "existing": {"type": "object", "minProperties": 1, "maxProperties": 1},
+                "existing": {
+                    "type": "object", "minProperties": 1, "maxProperties": 1,
+                    "additionalProperties": False,
+                    "properties": {
+                        "project_id": {"type": "string", "minLength": 1},
+                        "application_id": {"type": "string", "minLength": 1},
+                        "repository": {"type": "string", "minLength": 1},
+                        "alias": {"type": "string", "minLength": 1},
+                        "name": {"type": "string", "minLength": 1},
+                    },
+                    "oneOf": [
+                        {"required": ["project_id"]}, {"required": ["application_id"]},
+                        {"required": ["repository"]}, {"required": ["alias"]},
+                        {"required": ["name"]},
+                    ],
+                },
                 "new": {
                     "type": "object", "required": ["name", "application_id"], "additionalProperties": False,
                     "properties": {"name": {"type": "string"}, "application_id": {"type": "string"}},
@@ -75,7 +90,9 @@ def _response(request_id: Any, result: dict) -> dict:
 def handle(core: DeveloperCore, message: dict) -> dict | None:
     request_id = message.get("id")
     method = message.get("method")
-    if request_id is None and method and method.startswith("notifications/"):
+    if not isinstance(method, str):
+        return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32600, "message": "Invalid Request"}}
+    if request_id is None and method.startswith("notifications/"):
         return None
     if method == "initialize":
         return _response(request_id, {
@@ -122,6 +139,8 @@ def serve() -> None:
             response = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": str(exc)}}
         except DeveloperError as exc:
             response = {"jsonrpc": "2.0", "id": message.get("id"), "error": {"code": -32602, "message": exc.detail, "data": {"code": exc.code}}}
+        except Exception:
+            response = {"jsonrpc": "2.0", "id": message.get("id") if isinstance(message, dict) else None, "error": {"code": -32603, "message": "Internal error"}}
         if response is not None:
             sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
             sys.stdout.flush()

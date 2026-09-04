@@ -98,6 +98,21 @@ class CoreTestCase(unittest.TestCase):
             })
         self.assertEqual("IDEMPOTENCY_CONFLICT", caught.exception.code)
 
+    def test_failed_start_replay_preserves_causal_failure(self):
+        checkout, remote = self.fixture("unreachable", "demo.unreachable")
+        self.core.import_project(str(checkout))
+        shutil.rmtree(remote)
+        payload = {
+            "idempotency_key": "failed-replay", "request": "Prepare it.",
+            "existing": {"application_id": "demo.unreachable"},
+        }
+        errors = []
+        for _ in range(2):
+            with self.assertRaises(DeveloperError) as caught:
+                self.core.start_development(payload)
+            errors.append((caught.exception.code, caught.exception.detail, caught.exception.data["session_id"]))
+        self.assertEqual(errors[0], errors[1])
+
     def test_import_and_existing_start_leave_checkout_unchanged(self):
         lock = (
             'repository = "https://github.com/gazeromo/capy-script-devkit"\n'
@@ -301,6 +316,15 @@ class CoreTestCase(unittest.TestCase):
             ["capy_projects_search", "capy_development_start", "capy_development_inspect", "capy_development_finish"],
             [tool["name"] for tool in response["result"]["tools"]],
         )
+        start = next(tool for tool in response["result"]["tools"] if tool["name"] == "capy_development_start")
+        self.assertEqual(
+            {"project_id", "application_id", "repository", "alias", "name"},
+            set(start["inputSchema"]["properties"]["existing"]["properties"]),
+        )
+
+    def test_mcp_invalid_method_shape_does_not_raise(self):
+        response = handle(self.core, {"jsonrpc": "2.0", "method": ["invalid"]})
+        self.assertEqual(-32600, response["error"]["code"])
 
 
 class CliProcessTests(unittest.TestCase):
@@ -353,6 +377,16 @@ class CliProcessTests(unittest.TestCase):
             self.assertEqual(4, len(lines[1]["result"]["tools"]))
             self.assertEqual("READY", lines[2]["result"]["structuredContent"]["status"])
             self.assertEqual("", mcp.stderr)
+
+    def test_invalid_cli_arguments_return_json(self):
+        completed = subprocess.run(
+            [sys.executable, "-m", "capy_developer", "development", "inspect", "--json"],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(2, completed.returncode)
+        result = json.loads(completed.stdout)
+        self.assertEqual("CLI_ARGUMENT_INVALID", result["error"]["code"])
+        self.assertIn('"code": "CLI_ARGUMENT_INVALID"', completed.stderr)
 
 
 if __name__ == "__main__":

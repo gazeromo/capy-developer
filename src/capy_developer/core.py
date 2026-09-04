@@ -270,6 +270,12 @@ class DeveloperCore:
                     if existing["request_digest"] != digest:
                         raise DeveloperError("IDEMPOTENCY_CONFLICT", "idempotency key was already used with different input")
                     session = dict(existing)
+                    if session["status"] == "FAILED":
+                        raise DeveloperError(
+                            session["error_code"] or "SESSION_FAILED",
+                            session["error_detail"] or "session preparation previously failed",
+                            data={"session_id": session["session_id"]},
+                        )
                     if session["status"] != "PREPARING":
                         return self._session_result(session["session_id"])
                 else:
