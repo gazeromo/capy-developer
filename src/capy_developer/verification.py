@@ -373,7 +373,10 @@ class VerificationService:
                 return
         started = utc_now()
         tick = time.monotonic()
-        status = run_git(["-C", str(test_checkout), "status", "--porcelain=v1", "--untracked-files=all"])
+        status = run_git(
+            ["-C", str(test_checkout), "status", "--porcelain=v1", "--untracked-files=all"],
+            allow_truncated_output=True,
+        )
         clean = self._candidate_unchanged(
             test_checkout, attempt["candidate_commit"], attempt["candidate_tree"]
         )
@@ -540,7 +543,10 @@ class VerificationService:
             run_git(["-C", str(checkout), "rev-parse", "HEAD"], check=False) == commit
             and run_git(["-C", str(checkout), "rev-parse", "HEAD^{tree}"], check=False) == tree
             and not run_git(["-C", str(checkout), "symbolic-ref", "--short", "-q", "HEAD"], check=False)
-            and not run_git(["-C", str(checkout), "status", "--porcelain=v1", "--untracked-files=all"])
+            and not run_git(
+                ["-C", str(checkout), "status", "--porcelain=v1", "--untracked-files=all"],
+                allow_truncated_output=True,
+            )
         )
 
     def _environment(self, home: Path, temporary: Path) -> dict[str, str]:
@@ -739,14 +745,30 @@ class VerificationService:
                 "SELECT worktree_path FROM sessions WHERE session_id=?", (attempt["session_id"],)
             ).fetchone()
         attempt_root = self._attempt_root(verification_id)
+        failures = []
         if session and session[0] and Path(session[0]).is_dir():
             repository_worktree = Path(session[0])
             for checkout in (attempt_root / "c", attempt_root / "a", attempt_root / "b"):
-                remove_detached_worktree(repository_worktree, checkout)
+                try:
+                    remove_detached_worktree(repository_worktree, checkout)
+                except (DeveloperError, OSError) as exc:
+                    failures.append(str(exc))
         if attempt_root.exists():
             shutil.rmtree(attempt_root, ignore_errors=True)
+            if attempt_root.exists():
+                failures.append("verification attempt directory remains after cleanup")
         if attempt.get("temporary_path"):
-            self._cleanup_external_temp(verification_id, Path(attempt["temporary_path"]))
+            try:
+                external_temp_removed = self._cleanup_external_temp(
+                    verification_id, Path(attempt["temporary_path"])
+                )
+            except (OSError, RuntimeError) as exc:
+                external_temp_removed = False
+                failures.append(str(exc))
+            if not external_temp_removed:
+                failures.append("external verification temporary directory remains after cleanup")
+        if failures:
+            self._record_cleanup_failure(verification_id, "; ".join(failures))
 
     def latest(self, session_id: str, workspace: dict | None) -> dict:
         self.reconcile(session_id)
@@ -760,7 +782,13 @@ class VerificationService:
         row = dict(row)
         if row["status"] == "RUNNING":
             state = "VERIFYING"
-        elif workspace is None or not workspace.get("exists") or workspace.get("dirty") or workspace.get("current_commit") != row["candidate_commit"]:
+        elif (
+            workspace is None
+            or not workspace.get("exists")
+            or workspace.get("dirty")
+            or not workspace.get("branch_matches")
+            or workspace.get("current_commit") != row["candidate_commit"]
+        ):
             state = "STALE"
         else:
             state = {"PASSED": "VERIFIED", "FAILED": "FAILED", "INTERRUPTED": "INTERRUPTED"}[row["status"]]

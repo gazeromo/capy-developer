@@ -214,6 +214,25 @@ class VerificationTests(unittest.TestCase):
         inspected = self.core.inspect_development(session["session_id"])
         self.assertEqual("STALE", inspected["verification"]["current_head_state"])
 
+    def test_verified_state_becomes_stale_after_branch_drift_at_same_commit(self):
+        session, workspace = self.start()
+        result = self.core.verify_development(self.payload(session, workspace))
+        self.assertEqual("PASSED", result["status"])
+        run_git(["switch", "-c", "alternate"], cwd=workspace)
+        inspected = self.core.inspect_development(session["session_id"])
+        self.assertEqual("WORKTREE_BRANCH_CHANGED", inspected["discrepancy"]["code"])
+        self.assertEqual("STALE", inspected["verification"]["current_head_state"])
+
+    def test_large_dirty_status_remains_a_boolean_probe(self):
+        session, workspace = self.start()
+        commit = run_git(["rev-parse", "HEAD"], cwd=workspace)
+        tree = run_git(["rev-parse", "HEAD^{tree}"], cwd=workspace)
+        for index in range(1200):
+            (workspace / f"dirty-{index:04d}-{'x' * 52}.txt").write_text("x", encoding="utf-8")
+        inspected = self.core.inspect_development(session["session_id"])
+        self.assertTrue(inspected["workspace"]["dirty"])
+        self.assertFalse(self.core.verifications._candidate_unchanged(workspace, commit, tree))
+
     def test_same_key_different_candidate_conflicts(self):
         session, workspace = self.start()
         payload = self.payload(session, workspace)
@@ -463,6 +482,36 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual("INTERRUPTED", inspected["verification"]["latest"]["status"])
         self.assertEqual("VERIFIER_PROCESS_INTERRUPTED", inspected["verification"]["latest"]["classification"])
         self.assertFalse(attempt_root.exists())
+
+    def test_abandoned_cleanup_failure_is_recorded_without_breaking_inspect(self):
+        session, workspace = self.start()
+        payload = self.payload(session, workspace)
+        now = "2026-09-04T00:00:00Z"
+        with self.core.db.connect() as db:
+            db.execute(
+                """INSERT INTO verification_attempts(
+                verification_id,session_id,idempotency_key,request_digest,application_id,
+                candidate_commit,candidate_tree,base_commit,development_branch,lock_digest,
+                contract,release_binding_commit,authoring_bundle_sha256,wheel_sha256,status,
+                started_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'RUNNING',?,?)""",
+                ("ver_cleanup_failure", session["session_id"], "cleanup-failure", "digest", "demo.verify_fixture",
+                 payload["candidate_commit"], run_git(["rev-parse", "HEAD^{tree}"], cwd=workspace),
+                 session["exact_base_commit"], session["development_branch"], "4" * 64,
+                 "capy.script/dev-v0", "1" * 40, "2" * 64, "3" * 64, now, now),
+            )
+        with mock.patch(
+            "capy_developer.verification.remove_detached_worktree",
+            side_effect=DeveloperError("GIT_WORKTREE_CLEANUP_FAILED", "corrupt registration"),
+        ):
+            inspected = self.core.inspect_development(session["session_id"])
+        self.assertEqual("FAILED", inspected["verification"]["latest"]["status"])
+        self.assertEqual("VERIFIER_INTERNAL_FAILED", inspected["verification"]["latest"]["classification"])
+        with self.core.db.connect() as db:
+            failure = db.execute(
+                "SELECT error_code,error_detail FROM verification_attempts WHERE verification_id='ver_cleanup_failure'"
+            ).fetchone()
+        self.assertEqual("GIT_WORKTREE_CLEANUP_FAILED", failure["error_code"])
+        self.assertIn("corrupt registration", failure["error_detail"])
 
     def test_new_key_reconciles_abandoned_attempt_before_allocation(self):
         session, workspace = self.start()

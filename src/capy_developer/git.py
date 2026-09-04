@@ -10,7 +10,13 @@ from .process import run_process
 from .util import HEX40, normalize_repository
 
 
-def run_git(arguments: list[str], *, cwd: Path | None = None, check: bool = True) -> str:
+def run_git(
+    arguments: list[str],
+    *,
+    cwd: Path | None = None,
+    check: bool = True,
+    allow_truncated_output: bool = False,
+) -> str:
     environment = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
     environment.update({
         "GIT_TERMINAL_PROMPT": "0",
@@ -33,7 +39,10 @@ def run_git(arguments: list[str], *, cwd: Path | None = None, check: bool = True
     )
     if completed.timed_out:
         raise DeveloperError("GIT_TIMEOUT", "Git command exceeded its bounded execution time")
-    if completed.stdout_truncated_bytes or completed.stderr_truncated_bytes:
+    if (
+        not allow_truncated_output
+        and (completed.stdout_truncated_bytes or completed.stderr_truncated_bytes)
+    ):
         raise DeveloperError("GIT_OUTPUT_LIMIT", "Git command exceeded its bounded output allowance")
     if check and completed.exit_code != 0:
         detail = completed.stderr.strip().splitlines()[-1] if completed.stderr.strip() else "Git command failed"
@@ -56,7 +65,10 @@ def checkout_facts(path: Path) -> dict:
         candidate = Path(origin)
         if not candidate.is_absolute():
             origin = (path / candidate).resolve().as_uri()
-    status = run_git(["-C", str(path), "status", "--porcelain=v1"])
+    status = run_git(
+        ["-C", str(path), "status", "--porcelain=v1"],
+        allow_truncated_output=True,
+    )
     return {"commit": commit, "branch": branch, "origin": origin, "dirty": bool(status)}
 
 
@@ -121,7 +133,10 @@ def initialize_bare(path: Path) -> None:
 
 def validate_candidate(path: Path, branch: str, candidate: str, base: str) -> dict:
     require_checkout(path)
-    status = run_git(["-C", str(path), "status", "--porcelain=v1", "--untracked-files=all"])
+    status = run_git(
+        ["-C", str(path), "status", "--porcelain=v1", "--untracked-files=all"],
+        allow_truncated_output=True,
+    )
     if status:
         raise DeveloperError("WORKTREE_DIRTY", "authoritative verification requires a clean worktree")
     actual_branch = run_git(["-C", str(path), "symbolic-ref", "--short", "-q", "HEAD"], check=False)
