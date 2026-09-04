@@ -491,6 +491,32 @@ class VerificationTests(unittest.TestCase):
         registrations = run_git(["worktree", "list", "--porcelain"], cwd=workspace)
         self.assertNotIn(str(checkout), registrations)
 
+    def test_cleanup_failure_downgrades_a_passed_attempt_durably(self):
+        session, workspace = self.start()
+        with mock.patch(
+            "capy_developer.verification.remove_detached_worktree",
+            side_effect=DeveloperError("GIT_WORKTREE_CLEANUP_FAILED", "registration remains"),
+        ):
+            result = self.core.verify_development(self.payload(session, workspace))
+        self.assertEqual(("FAILED", "VERIFIER_INTERNAL_FAILED"), (result["status"], result["classification"]))
+        self.assertEqual("GIT_WORKTREE_CLEANUP_FAILED", result["error"]["code"])
+        restarted = DeveloperCore(self.config)
+        replay = restarted.verify_development(self.payload(session, workspace))
+        self.assertEqual(result["verification_id"], replay["verification_id"])
+        self.assertEqual("GIT_WORKTREE_CLEANUP_FAILED", replay["error"]["code"])
+
+    def test_process_streaming_capture_is_bounded(self):
+        result = run_process(
+            [sys.executable, "-c", f"import os; os.write(1, b'h'*{OUTPUT_LIMIT * 4} + b'tail')"],
+            cwd=self.root,
+            environment={"PATH": os.environ.get("PATH", "")},
+            timeout=10,
+        )
+        self.assertEqual(0, result.exit_code)
+        self.assertLessEqual(len(result.stdout.encode()), OUTPUT_LIMIT)
+        self.assertGreater(result.stdout_truncated_bytes, 0)
+        self.assertTrue(result.stdout.endswith("tail"))
+
     def test_verify_input_rejects_unknown_fields_and_invalid_identity(self):
         session, workspace = self.start()
         payload = self.payload(session, workspace)

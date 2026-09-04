@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -154,5 +155,19 @@ def add_detached_worktree(repository_worktree: Path, destination: Path, commit: 
 
 
 def remove_detached_worktree(repository_worktree: Path, destination: Path) -> None:
-    run_git(["-C", str(repository_worktree), "worktree", "remove", "--force", str(destination)], check=False)
+    try:
+        run_git(["-C", str(repository_worktree), "worktree", "remove", "--force", str(destination)])
+    except DeveloperError:
+        if destination.is_symlink():
+            destination.unlink(missing_ok=True)
+        elif destination.exists():
+            shutil.rmtree(destination)
     run_git(["-C", str(repository_worktree), "worktree", "prune", "--expire", "now"], check=False)
+    registrations = run_git(["-C", str(repository_worktree), "worktree", "list", "--porcelain"])
+    registered = {
+        line.removeprefix("worktree ")
+        for line in registrations.splitlines()
+        if line.startswith("worktree ")
+    }
+    if str(destination.resolve()) in registered:
+        raise DeveloperError("GIT_WORKTREE_CLEANUP_FAILED", "detached verification worktree registration remains")

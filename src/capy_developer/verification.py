@@ -160,13 +160,19 @@ class VerificationService:
                     error_detail=type(exc).__name__,
                 )
             finally:
+                cleanup_errors = []
                 if repository_worktree is not None:
                     for checkout in (test_checkout, attempt_root / "a", attempt_root / "b"):
-                        remove_detached_worktree(repository_worktree, checkout)
+                        try:
+                            remove_detached_worktree(repository_worktree, checkout)
+                        except DeveloperError as exc:
+                            cleanup_errors.append(f"{exc.code}: {exc.detail}")
                 if attempt_root.exists():
                     shutil.rmtree(attempt_root, ignore_errors=True)
                 if external_temp is not None:
                     self._cleanup_external_temp(verification_id, external_temp)
+                if allocated and cleanup_errors:
+                    self._record_cleanup_failure(verification_id, "; ".join(cleanup_errors))
             if not allocated:
                 raise DeveloperError("VERIFIER_INTERNAL_ERROR", "verification attempt was not allocated")
             return self.result(verification_id)
@@ -582,6 +588,21 @@ class VerificationService:
             row = db.execute("SELECT session_id FROM verification_attempts WHERE verification_id=?", (verification_id,)).fetchone()
             if row:
                 self.db.event(db, row[0], "VERIFICATION_TERMINAL", {"verification_id": verification_id, "status": status, "classification": classification})
+
+    def _record_cleanup_failure(self, verification_id: str, detail: str) -> None:
+        now = utc_now()
+        with self.db.connect() as db:
+            db.execute(
+                """UPDATE verification_attempts SET status='FAILED',classification='VERIFIER_INTERNAL_FAILED',
+                   updated_at=?,terminal_at=?,archive_sha256=NULL,archive_size_bytes=NULL,archive_path=NULL,
+                   error_code='GIT_WORKTREE_CLEANUP_FAILED',error_detail=? WHERE verification_id=?""",
+                (now, now, detail[:2000], verification_id),
+            )
+            row = db.execute(
+                "SELECT session_id FROM verification_attempts WHERE verification_id=?", (verification_id,)
+            ).fetchone()
+            if row:
+                self.db.event(db, row[0], "VERIFICATION_CLEANUP_FAILED", {"verification_id": verification_id})
 
     def _attempt(self, verification_id: str) -> dict:
         with self.db.connect() as db:
