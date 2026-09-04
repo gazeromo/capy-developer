@@ -13,11 +13,21 @@ from .errors import DeveloperError
 from .util import HEX40, HEX64, stable_digest
 
 
-ACCEPTED_DEVKIT_MAIN = "0cf018faa02ade73ab0805aa0617c55ce36fa7b1"
-ACCEPTED_BUNDLE_SHA256 = "cb7e4073a99bf8596509af02f466f90b5792d1d8075dffab0f27bbb2df0679e8"
-ACCEPTED_WHEEL_SHA256 = "165faba51b56b667b087228e1c556b1e2369d0e61bb469785ddff1bad9d6e2d0"
-ACCEPTED_SOURCE_COMMIT = "55fc109b5f494086c03560794e7be74d75f1d93f"
+ACCEPTED_DEVKIT_MAIN = "8c4fec7f814a62ded441786b8eba28af14d1aa2d"
+ACCEPTED_BUNDLE_SHA256 = "dc2c27611d12ecb12e1a929252a51e177537d8f0e4fba86de5ed93edae886d5c"
+ACCEPTED_WHEEL_SHA256 = "46f0b7865491054991b855d3bf709a445b7cc730077aaca2059cc095c685b30d"
+ACCEPTED_SOURCE_COMMIT = "e4462973d94584a75a1596f1b06a425a8da7f20d"
 ACCEPTED_REPOSITORY = "gazeromo/capy-script-devkit"
+
+HISTORICAL_DEVKIT_MAIN = "0cf018faa02ade73ab0805aa0617c55ce36fa7b1"
+HISTORICAL_BUNDLE_SHA256 = "cb7e4073a99bf8596509af02f466f90b5792d1d8075dffab0f27bbb2df0679e8"
+HISTORICAL_WHEEL_SHA256 = "165faba51b56b667b087228e1c556b1e2369d0e61bb469785ddff1bad9d6e2d0"
+HISTORICAL_SOURCE_COMMIT = "55fc109b5f494086c03560794e7be74d75f1d93f"
+
+BUNDLED_RELEASES = {
+    ACCEPTED_BUNDLE_SHA256: "accepted-authoring-bundle.zip",
+    HISTORICAL_BUNDLE_SHA256: "historical-authoring-bundle-cb7e4073.zip",
+}
 
 
 TRUSTED_RELEASES = {
@@ -26,6 +36,12 @@ TRUSTED_RELEASES = {
         "bundle_sha256": ACCEPTED_BUNDLE_SHA256,
         "wheel_sha256": ACCEPTED_WHEEL_SHA256,
         "source_commit": ACCEPTED_SOURCE_COMMIT,
+    },
+    HISTORICAL_DEVKIT_MAIN: {
+        "repository": ACCEPTED_REPOSITORY,
+        "bundle_sha256": HISTORICAL_BUNDLE_SHA256,
+        "wheel_sha256": HISTORICAL_WHEEL_SHA256,
+        "source_commit": HISTORICAL_SOURCE_COMMIT,
     },
 }
 
@@ -140,24 +156,30 @@ class ToolchainCache:
     def __init__(self, cache_root: Path):
         self.root = cache_root / "toolchains" / "sha256"
 
-    def accepted_bundle(self) -> Path:
-        resource = importlib.resources.files("capy_developer").joinpath("data/accepted-authoring-bundle.zip")
+    def _bundled_bundle(self, bundle_sha256: str) -> Path:
+        filename = BUNDLED_RELEASES.get(bundle_sha256)
+        if filename is None:
+            raise DeveloperError("DEVKIT_BUNDLE_UNAVAILABLE", "trusted DevKit bundle is not embedded")
+        resource = importlib.resources.files("capy_developer").joinpath(f"data/{filename}")
         with importlib.resources.as_file(resource) as bundled:
-            if sha256_file(bundled) != ACCEPTED_BUNDLE_SHA256:
-                raise DeveloperError("DEVKIT_BUNDLE_DIGEST_MISMATCH", "embedded accepted DevKit bundle is invalid")
-            target = self.root / ACCEPTED_BUNDLE_SHA256 / "authoring-bundle.zip"
-            if target.exists() and sha256_file(target) != ACCEPTED_BUNDLE_SHA256:
-                raise DeveloperError("DEVKIT_CACHE_CONFLICT", "cached accepted DevKit bundle has the wrong digest")
+            if sha256_file(bundled) != bundle_sha256:
+                raise DeveloperError("DEVKIT_BUNDLE_DIGEST_MISMATCH", "embedded trusted DevKit bundle is invalid")
+            target = self.root / bundle_sha256 / "authoring-bundle.zip"
+            if target.exists() and sha256_file(target) != bundle_sha256:
+                raise DeveloperError("DEVKIT_CACHE_CONFLICT", "cached trusted DevKit bundle has the wrong digest")
             if not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 temporary = target.with_suffix(".tmp")
                 shutil.copyfile(bundled, temporary)
-                if sha256_file(temporary) != ACCEPTED_BUNDLE_SHA256:
+                if sha256_file(temporary) != bundle_sha256:
                     temporary.unlink(missing_ok=True)
                     raise DeveloperError("DEVKIT_BUNDLE_DIGEST_MISMATCH", "copied DevKit bundle failed verification")
                 temporary.replace(target)
             self._verify_bundle(target)
             return target
+
+    def accepted_bundle(self) -> Path:
+        return self._bundled_bundle(ACCEPTED_BUNDLE_SHA256)
 
     def _verify_bundle(self, bundle: Path) -> dict:
         try:
@@ -271,12 +293,12 @@ class ToolchainCache:
         ):
             return "MISSING"
         if lock.bundle_sha256:
-            if lock.bundle_sha256 == ACCEPTED_BUNDLE_SHA256:
-                self.accepted_bundle()
+            if lock.bundle_sha256 in BUNDLED_RELEASES:
+                self._bundled_bundle(lock.bundle_sha256)
             candidate = self.root / lock.bundle_sha256 / "authoring-bundle.zip"
             return "AVAILABLE" if candidate.is_file() and sha256_file(candidate) == lock.bundle_sha256 else "MISSING"
-        if lock.wheel_sha256 == ACCEPTED_WHEEL_SHA256:
-            self.accepted_bundle()
+        if trusted["bundle_sha256"] in BUNDLED_RELEASES:
+            self._bundled_bundle(trusted["bundle_sha256"])
             return "AVAILABLE"
         for bundle in self.root.glob("*/authoring-bundle.zip"):
             try:

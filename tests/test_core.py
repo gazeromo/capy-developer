@@ -17,7 +17,15 @@ from capy_developer.core import DeveloperCore
 from capy_developer.errors import DeveloperError
 from capy_developer.git import checkout_facts, run_git
 from capy_developer.mcp import handle
-from capy_developer.toolchain import ACCEPTED_BUNDLE_SHA256, ACCEPTED_WHEEL_SHA256
+from capy_developer.toolchain import (
+    ACCEPTED_BUNDLE_SHA256,
+    ACCEPTED_WHEEL_SHA256,
+    HISTORICAL_BUNDLE_SHA256,
+    HISTORICAL_DEVKIT_MAIN,
+    HISTORICAL_SOURCE_COMMIT,
+    HISTORICAL_WHEEL_SHA256,
+    ToolchainLock,
+)
 from capy_developer.util import normalize_repository
 from capy_developer.util import operation_lock
 
@@ -74,6 +82,15 @@ class CoreTestCase(unittest.TestCase):
         result = self.core.doctor()
         self.assertEqual(ACCEPTED_BUNDLE_SHA256, result["accepted_toolchain"]["bundle_sha256"])
         self.assertEqual("AVAILABLE", result["accepted_toolchain"]["status"])
+        historical = ToolchainLock(
+            "capy.toolchain-lock/v0", "capy.script/dev-v0", "gazeromo/capy-script-devkit",
+            HISTORICAL_DEVKIT_MAIN, "capy_script_devkit-0.0.0-py3-none-any.whl",
+            HISTORICAL_WHEEL_SHA256, HISTORICAL_BUNDLE_SHA256, "capy.lock", "VALID",
+        )
+        resolved = self.core.toolchains.resolve(historical)
+        self.assertEqual(HISTORICAL_BUNDLE_SHA256, resolved.bundle_sha256)
+        self.assertEqual(HISTORICAL_WHEEL_SHA256, resolved.wheel_sha256)
+        self.assertEqual(HISTORICAL_SOURCE_COMMIT, resolved.manifest["source_commit"])
 
     def test_new_project_is_ready_exact_and_idempotent(self):
         first = self.start_new()
