@@ -7,7 +7,7 @@ from pathlib import Path
 from .util import utc_now
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class ClosingConnection(sqlite3.Connection):
@@ -33,6 +33,13 @@ class Database:
 
     def _initialize(self) -> None:
         with self.connect() as db:
+            existing = db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='metadata'"
+            ).fetchone()
+            if existing:
+                current = db.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
+                if current is not None and int(current[0]) not in {1, SCHEMA_VERSION}:
+                    raise RuntimeError(f"unsupported database schema {current[0]}")
             db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS metadata (
@@ -114,13 +121,58 @@ class Database:
                     created_at TEXT NOT NULL,
                     facts TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS verification_attempts (
+                    verification_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL REFERENCES sessions(session_id),
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    request_digest TEXT NOT NULL,
+                    application_id TEXT NOT NULL,
+                    candidate_commit TEXT NOT NULL,
+                    candidate_tree TEXT NOT NULL,
+                    base_commit TEXT NOT NULL,
+                    development_branch TEXT NOT NULL,
+                    lock_digest TEXT NOT NULL,
+                    contract TEXT NOT NULL,
+                    release_binding_commit TEXT,
+                    authoring_bundle_sha256 TEXT NOT NULL,
+                    wheel_sha256 TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    classification TEXT,
+                    started_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    terminal_at TEXT,
+                    archive_sha256 TEXT,
+                    archive_size_bytes INTEGER,
+                    archive_path TEXT,
+                    error_code TEXT,
+                    error_detail TEXT
+                );
+                CREATE INDEX IF NOT EXISTS verification_attempts_session
+                    ON verification_attempts(session_id, started_at, verification_id);
+                CREATE TABLE IF NOT EXISTS verification_stages (
+                    verification_id TEXT NOT NULL REFERENCES verification_attempts(verification_id),
+                    stage_order INTEGER NOT NULL,
+                    stage_name TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    started_at TEXT,
+                    terminal_at TEXT,
+                    duration_ms INTEGER,
+                    exit_code INTEGER,
+                    stdout_text TEXT NOT NULL DEFAULT '',
+                    stderr_text TEXT NOT NULL DEFAULT '',
+                    stdout_truncated_bytes INTEGER NOT NULL DEFAULT 0,
+                    stderr_truncated_bytes INTEGER NOT NULL DEFAULT 0,
+                    facts TEXT NOT NULL DEFAULT '{}',
+                    PRIMARY KEY(verification_id, stage_order),
+                    UNIQUE(verification_id, stage_name)
+                );
                 """
             )
             current = db.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
             if current is None:
                 db.execute("INSERT INTO metadata VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
-            elif int(current[0]) != SCHEMA_VERSION:
-                raise RuntimeError(f"unsupported database schema {current[0]}")
+            elif int(current[0]) == 1:
+                db.execute("UPDATE metadata SET value=? WHERE key='schema_version'", (str(SCHEMA_VERSION),))
 
     @staticmethod
     def row(row: sqlite3.Row | None) -> dict | None:

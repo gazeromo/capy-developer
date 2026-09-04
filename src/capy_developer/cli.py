@@ -52,6 +52,11 @@ def parser() -> argparse.ArgumentParser:
     start.add_argument("--input-json")
     inspect = development.add_parser("inspect")
     inspect.add_argument("--session-id", required=True)
+    verify = development.add_parser("verify")
+    verify.add_argument("--session-id", required=True)
+    verify.add_argument("--application-id", required=True)
+    verify.add_argument("--candidate-commit", required=True)
+    verify.add_argument("--idempotency-key", required=True)
     finish = development.add_parser("finish")
     finish.add_argument("--session-id", required=True)
     finish.add_argument("--disposition", required=True, choices=["COMPLETED", "CANCELLED"])
@@ -77,6 +82,13 @@ def run(arguments: list[str] | None = None) -> dict | None:
         return core.start_development(_read_input(args.input, args.input_json))
     if args.command == "development" and args.development_command == "inspect":
         return core.inspect_development(args.session_id)
+    if args.command == "development" and args.development_command == "verify":
+        return core.verify_development({
+            "session_id": args.session_id,
+            "application_id": args.application_id,
+            "candidate_commit": args.candidate_commit,
+            "idempotency_key": args.idempotency_key,
+        })
     if args.command == "development" and args.development_command == "finish":
         return core.finish_development(args.session_id, args.disposition)
     raise DeveloperError("CLI_COMMAND_INVALID", "unsupported command")
@@ -87,6 +99,8 @@ def main(arguments: list[str] | None = None) -> int:
         result = run(arguments)
         if result is not None:
             print(json.dumps(result, sort_keys=True))
+        if result is not None and result.get("schema") == "capy.development-verification-result/v0":
+            return 0 if result.get("status") == "PASSED" else 1
         return 0
     except DeveloperError as exc:
         print(json.dumps(exc.result(), sort_keys=True))

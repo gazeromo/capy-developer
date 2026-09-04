@@ -53,3 +53,13 @@ class Config:
     def operation_lock(self) -> Path:
         return self.data_root / "operation.lock"
 
+    @property
+    def verification_root(self) -> Path:
+        return self.cache_root / "v"
+
+    @property
+    def verification_artifacts_root(self) -> Path:
+        return self.cache_root / "verification-artifacts" / "sha256"
+
+    def verification_lock(self, session_id: str) -> Path:
+        return self.data_root / "verification-locks" / f"{session_id}.lock"

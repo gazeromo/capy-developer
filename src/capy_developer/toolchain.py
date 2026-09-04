@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 
 from .errors import DeveloperError
-from .util import HEX40, HEX64
+from .util import HEX40, HEX64, stable_digest
 
 
 ACCEPTED_DEVKIT_MAIN = "0cf018faa02ade73ab0805aa0617c55ce36fa7b1"
@@ -52,6 +52,27 @@ class ToolchainLock:
             "lock_status": self.lock_status,
             "availability": availability,
             "detail": self.detail,
+        }
+
+
+@dataclass(frozen=True)
+class ResolvedToolchain:
+    lock: ToolchainLock
+    lock_digest: str
+    bundle: Path
+    bundle_sha256: str
+    wheel: Path
+    wheel_sha256: str
+    manifest: dict
+
+    def as_dict(self) -> dict:
+        return {
+            "contract": self.lock.contract,
+            "lock_digest": self.lock_digest,
+            "release_binding_commit": self.lock.commit,
+            "implementation_commit": self.manifest.get("source_commit"),
+            "authoring_bundle_sha256": self.bundle_sha256,
+            "wheel_sha256": self.wheel_sha256,
         }
 
 
@@ -133,9 +154,74 @@ class ToolchainCache:
             raise DeveloperError("DEVKIT_BUNDLE_INVALID", "DevKit bundle structure is invalid") from exc
         if manifest.get("schema") != "capy.devkit-authoring-bundle/v0":
             raise DeveloperError("DEVKIT_BUNDLE_INVALID", "DevKit bundle schema is unsupported")
-        if hashlib.sha256(wheel_bytes).hexdigest() != ACCEPTED_WHEEL_SHA256:
-            raise DeveloperError("DEVKIT_WHEEL_DIGEST_MISMATCH", "accepted DevKit wheel digest is invalid")
+        wheel_digest = hashlib.sha256(wheel_bytes).hexdigest()
+        if manifest.get("wheel_sha256") != wheel_digest:
+            raise DeveloperError("DEVKIT_WHEEL_DIGEST_MISMATCH", "DevKit wheel digest is invalid")
         return manifest
+
+    def resolve(self, lock: ToolchainLock) -> ResolvedToolchain:
+        if lock.lock_status == "UNBOUND":
+            raise DeveloperError("TOOLCHAIN_LOCK_UNBOUND", "candidate source has no exact supported DevKit lock")
+        if lock.contract and lock.contract != "capy.script/dev-v0":
+            raise DeveloperError("TOOLCHAIN_CONTRACT_UNSUPPORTED", "candidate DevKit contract is unsupported")
+        if lock.lock_status != "VALID":
+            raise DeveloperError("TOOLCHAIN_LOCK_INVALID", "candidate DevKit lock is invalid")
+        if lock.contract != "capy.script/dev-v0":
+            raise DeveloperError("TOOLCHAIN_CONTRACT_UNSUPPORTED", "candidate DevKit contract is unsupported")
+        if self.availability(lock) != "AVAILABLE":
+            raise DeveloperError("TOOLCHAIN_UNAVAILABLE", "the exact locked DevKit bytes are not available locally")
+        candidates = []
+        if lock.bundle_sha256:
+            candidates.append(self.root / lock.bundle_sha256 / "authoring-bundle.zip")
+        else:
+            candidates.extend(sorted(self.root.glob("*/authoring-bundle.zip")))
+        bundle = None
+        manifest = None
+        for candidate in candidates:
+            try:
+                digest = sha256_file(candidate)
+                if digest != candidate.parent.name:
+                    continue
+                inspected = self._verify_bundle(candidate)
+                if (
+                    inspected.get("contract") == lock.contract
+                    and inspected.get("wheel_filename") == lock.wheel
+                    and inspected.get("wheel_sha256") == lock.wheel_sha256
+                ):
+                    bundle, manifest = candidate, inspected
+                    break
+            except (OSError, DeveloperError):
+                continue
+        if bundle is None or manifest is None:
+            raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", "no exact verified bundle matches the project lock")
+        bundle_digest = sha256_file(bundle)
+        if lock.bundle_sha256 and lock.bundle_sha256 != bundle_digest:
+            raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", "locked bundle digest does not match available bytes")
+        wheel = bundle.parent / str(lock.wheel)
+        if wheel.exists() and sha256_file(wheel) != lock.wheel_sha256:
+            raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", "cached wheel conflicts with its locked digest")
+        if not wheel.exists():
+            with zipfile.ZipFile(bundle) as archive:
+                payload = archive.read(f"wheel/{lock.wheel}")
+            temporary = wheel.with_suffix(wheel.suffix + ".tmp")
+            temporary.write_bytes(payload)
+            if sha256_file(temporary) != lock.wheel_sha256:
+                temporary.unlink(missing_ok=True)
+                raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", "extracted wheel failed digest verification")
+            temporary.replace(wheel)
+        lock_facts = {
+            "schema": lock.schema,
+            "contract": lock.contract,
+            "repository": lock.repository,
+            "commit": lock.commit,
+            "wheel": lock.wheel,
+            "wheel_sha256": lock.wheel_sha256,
+            "authoring_bundle_sha256": lock.bundle_sha256,
+        }
+        return ResolvedToolchain(
+            lock, stable_digest(lock_facts), bundle, bundle_digest, wheel,
+            str(lock.wheel_sha256), manifest,
+        )
 
     def availability(self, lock: ToolchainLock) -> str:
         if lock.lock_status == "UNBOUND":

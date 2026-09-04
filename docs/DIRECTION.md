@@ -10,7 +10,8 @@ V0 is local and harness-neutral. Its interfaces are a versioned JSON CLI and
 four MCP stdio tools backed by the same core. Native Git remains source
 authority; SQLite is only a durable catalog and session journal.
 
-Application verification, runtime preview, release acceptance, production
-publication, remote MCP, repository-provider provisioning, coding-agent
-supervision, and extraction of runtime builder residue are later decisions.
-
+Exact committed portable-application verification is owned here through one
+fixed offline locked-DevKit pipeline and durable evidence. Runtime preview,
+release acceptance, production publication, remote MCP, repository-provider
+provisioning, coding-agent supervision, and extraction of runtime builder
+residue remain later decisions.

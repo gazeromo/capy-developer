@@ -101,8 +101,41 @@ def normalize_repository(value: str) -> str:
     raise DeveloperError("REPOSITORY_IDENTITY_INVALID", "repository identity must be a native path or supported Git URL")
 
 
+def _try_lock(candidate) -> None:
+    if os.fstat(candidate.fileno()).st_size == 0:
+        candidate.write(b"\0")
+        candidate.flush()
+    candidate.seek(0)
+    if os.name == "nt":
+        import msvcrt
+
+        msvcrt.locking(candidate.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(candidate.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock(candidate) -> None:
+    candidate.seek(0)
+    if os.name == "nt":
+        import msvcrt
+
+        msvcrt.locking(candidate.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(candidate.fileno(), fcntl.LOCK_UN)
+
+
 @contextmanager
-def operation_lock(path: Path, timeout: float = 30.0):
+def exclusive_lock(
+    path: Path,
+    timeout: float = 30.0,
+    *,
+    busy_code: str = "OPERATION_BUSY",
+    busy_detail: str = "another Capy Developer operation is active",
+):
     deadline = time.monotonic() + timeout
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = None
@@ -113,18 +146,7 @@ def operation_lock(path: Path, timeout: float = 30.0):
             descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
             candidate = os.fdopen(descriptor, "r+b")
             descriptor = None
-            candidate.seek(0)
-            if os.name == "nt":
-                import msvcrt
-
-                msvcrt.locking(candidate.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(candidate.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            if os.fstat(candidate.fileno()).st_size == 0:
-                candidate.write(b"\0")
-                candidate.flush()
+            _try_lock(candidate)
             handle = candidate
         except OSError:
             if candidate is not None:
@@ -132,20 +154,32 @@ def operation_lock(path: Path, timeout: float = 30.0):
             elif descriptor is not None:
                 os.close(descriptor)
             if time.monotonic() >= deadline:
-                raise DeveloperError("OPERATION_BUSY", "another Capy Developer operation is active")
+                raise DeveloperError(busy_code, busy_detail)
             time.sleep(0.05)
     try:
         yield
     finally:
         try:
-            handle.seek(0)
-            if os.name == "nt":
-                import msvcrt
-
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            _unlock(handle)
         finally:
             handle.close()
+
+
+def operation_lock(path: Path, timeout: float = 30.0):
+    return exclusive_lock(path, timeout)
+
+
+def lock_is_available(path: Path) -> bool:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    candidate = os.fdopen(descriptor, "r+b")
+    try:
+        _try_lock(candidate)
+    except OSError:
+        candidate.close()
+        return False
+    try:
+        _unlock(candidate)
+    finally:
+        candidate.close()
+    return True

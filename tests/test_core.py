@@ -424,10 +424,10 @@ class CoreTestCase(unittest.TestCase):
         expected = self.core.inspect_development(direct["session_id"])
         self.assertEqual(expected, structured)
 
-    def test_mcp_lists_only_four_tools(self):
+    def test_mcp_lists_verify_tool_with_foundation_tools(self):
         response = handle(self.core, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         self.assertEqual(
-            ["capy_projects_search", "capy_development_start", "capy_development_inspect", "capy_development_finish"],
+            ["capy_projects_search", "capy_development_start", "capy_development_inspect", "capy_development_finish", "capy_development_verify"],
             [tool["name"] for tool in response["result"]["tools"]],
         )
         start = next(tool for tool in response["result"]["tools"] if tool["name"] == "capy_development_start")
@@ -488,7 +488,7 @@ class CliProcessTests(unittest.TestCase):
             )
             lines = [json.loads(line) for line in mcp.stdout.splitlines()]
             self.assertEqual([1, 2, 3], [line["id"] for line in lines])
-            self.assertEqual(4, len(lines[1]["result"]["tools"]))
+            self.assertEqual(5, len(lines[1]["result"]["tools"]))
             self.assertEqual("READY", lines[2]["result"]["structuredContent"]["status"])
             self.assertEqual("", mcp.stderr)
 

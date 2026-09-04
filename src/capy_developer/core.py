@@ -19,7 +19,9 @@ from .git import (
     run_git,
 )
 from .toolchain import ToolchainCache, ToolchainLock, current_lock, read_lock
+from .verification import VerificationService
 from .util import (
+    exclusive_lock,
     machine_id,
     new_id,
     normalize_repository,
@@ -43,6 +45,7 @@ class DeveloperCore:
         self.config.ensure()
         self.db = Database(self.config.database)
         self.toolchains = ToolchainCache(self.config.cache_root)
+        self.verifications = VerificationService(self)
 
     def doctor(self) -> dict:
         bundle = self.toolchains.accepted_bundle()
@@ -50,7 +53,7 @@ class DeveloperCore:
         return {
             "schema": "capy.developer-doctor/v0",
             "ok": True,
-            "version": "0.1.0",
+            "version": "0.2.0",
             "database_schema": SCHEMA_VERSION,
             "git": git_version,
             "roots": {
@@ -460,10 +463,12 @@ class DeveloperCore:
             (seed / "CAPY.md").write_text(
                 f"# {specification['name']}\n\n"
                 f"Capy application identity: `{specification['application_id']}`.\n\n"
-                "The application contract is `capability.toml`. The exact toolchain is declared in "
-                "`capy.lock`; use the project-native tests and DevKit commands documented in `README.md`.\n\n"
-                "Capy runtime source and production data are outside this project. Release acceptance and "
-                "production activation are not part of Capy Developer Foundation V0.\n", encoding="utf-8",
+                "Work only in this prepared repository and worktree. The application contract is "
+                "`capability.toml`; Capy Developer resolves the exact toolchain declared in `capy.lock`. "
+                "Use ordinary project-native commands while editing, commit the candidate, then call "
+                "`capy_development_verify` or `capy-dev development verify` for authoritative verification.\n\n"
+                "Verification does not publish or deploy the application. Do not read or modify Capy runtime "
+                "source or production data.\n", encoding="utf-8",
             )
             run_git(["init", "--initial-branch=main"], cwd=seed)
             run_git(["config", "user.name", "Capy Developer"], cwd=seed)
@@ -515,6 +520,14 @@ class DeveloperCore:
         return self._session_result(session_id, revalidate=True)
 
     def finish_development(self, session_id: str, disposition: str) -> dict:
+        with exclusive_lock(
+            self.config.verification_lock(session_id), 0,
+            busy_code="VERIFICATION_BUSY",
+            busy_detail="a live verification prevents finishing this development session",
+        ):
+            return self._finish_development_unlocked(session_id, disposition)
+
+    def _finish_development_unlocked(self, session_id: str, disposition: str) -> dict:
         if disposition not in {"COMPLETED", "CANCELLED"}:
             raise DeveloperError("DISPOSITION_INVALID", "disposition must be COMPLETED or CANCELLED")
         with operation_lock(self.config.operation_lock), self.db.connect() as db:
@@ -566,6 +579,7 @@ class DeveloperCore:
                 }
                 if revalidate and not workspace["branch_matches"]:
                     discrepancy = {"code": "WORKTREE_BRANCH_CHANGED", "detail": "managed worktree branch differs from the session"}
+        verification = self.verifications.latest(session_id, workspace)
         return {
             "schema": RESULT_SCHEMA,
             "ok": session["status"] != "FAILED",
@@ -581,8 +595,17 @@ class DeveloperCore:
             "discrepancy": discrepancy,
             "error": None if not session["error_code"] else {"code": session["error_code"], "detail": session["error_detail"]},
             "events": events,
-            "next_actions": [] if session["status"] != "READY" else ["Work only inside the returned workspace.", "Call development_finish when the coding session ends."],
+            "verification": verification,
+            "next_actions": [] if session["status"] != "READY" else [
+                "Work only inside the returned workspace.",
+                "Commit candidate changes before authoritative verification.",
+                "Call development_verify for the exact clean commit.",
+                "Call development_finish when the coding session ends.",
+            ],
         }
+
+    def verify_development(self, payload: dict) -> dict:
+        return self.verifications.verify(payload)
 
     def _project_summary(self, project: dict) -> dict:
         with self.db.connect() as db:

@@ -113,3 +113,43 @@ def initialize_bare(path: Path) -> None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     run_git(["init", "--bare", "--initial-branch=main", str(path)])
+
+
+def validate_candidate(path: Path, branch: str, candidate: str, base: str) -> dict:
+    require_checkout(path)
+    status = run_git(["-C", str(path), "status", "--porcelain=v1", "--untracked-files=all"])
+    if status:
+        raise DeveloperError("WORKTREE_DIRTY", "authoritative verification requires a clean worktree")
+    actual_branch = run_git(["-C", str(path), "symbolic-ref", "--short", "-q", "HEAD"], check=False)
+    if actual_branch != branch:
+        raise DeveloperError("WORKTREE_BRANCH_CHANGED", "managed worktree branch differs from the session")
+    actual = run_git(["-C", str(path), "rev-parse", "--verify", "HEAD"], check=False)
+    if actual != candidate:
+        raise DeveloperError("CANDIDATE_COMMIT_MISMATCH", "worktree HEAD does not equal candidate_commit")
+    resolved = run_git(["-C", str(path), "rev-parse", "--verify", f"{candidate}^{{commit}}"], check=False)
+    if resolved != candidate:
+        raise DeveloperError("CANDIDATE_COMMIT_UNAVAILABLE", "candidate_commit is unavailable in the session repository")
+    common = run_git(["-C", str(path), "merge-base", base, candidate], check=False)
+    if common != base:
+        raise DeveloperError("CANDIDATE_BASE_MISMATCH", "candidate_commit does not descend from the session base")
+    for marker in ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
+        marker_path = run_git(["-C", str(path), "rev-parse", "--git-path", marker], check=False)
+        if marker_path and Path(marker_path).exists():
+            raise DeveloperError("GIT_OPERATION_UNRESOLVED", "managed worktree has an unresolved Git operation")
+    tree = run_git(["-C", str(path), "rev-parse", f"{candidate}^{{tree}}"])
+    listing = run_git(["-C", str(path), "ls-tree", "-r", candidate])
+    if any(line.startswith("160000 ") for line in listing.splitlines()):
+        raise DeveloperError("CANDIDATE_GITLINK_UNSUPPORTED", "Git submodules are unsupported for portable V0 verification")
+    return {"commit": candidate, "tree": tree, "branch": branch, "base_commit": base}
+
+
+def add_detached_worktree(repository_worktree: Path, destination: Path, commit: str) -> None:
+    if destination.exists():
+        raise DeveloperError("VERIFICATION_PATH_CONFLICT", "attempt checkout path already exists")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    run_git(["-C", str(repository_worktree), "worktree", "add", "--detach", str(destination), commit])
+
+
+def remove_detached_worktree(repository_worktree: Path, destination: Path) -> None:
+    if destination.exists():
+        run_git(["-C", str(repository_worktree), "worktree", "remove", "--force", str(destination)], check=False)

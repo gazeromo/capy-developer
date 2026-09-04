@@ -68,6 +68,21 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "capy_development_verify",
+        "description": "Verify one exact clean Git commit in a READY Capy development session using that project's exact locked DevKit. This checks, tests, conforms, and packages a portable capy.script/dev-v0 application. It does not accept, publish, deploy, or activate software.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["session_id", "application_id", "candidate_commit", "idempotency_key"],
+            "additionalProperties": False,
+            "properties": {
+                "session_id": {"type": "string", "minLength": 1},
+                "application_id": {"type": "string", "minLength": 1},
+                "candidate_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+                "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 200},
+            },
+        },
+    },
 ]
 
 
@@ -80,6 +95,8 @@ def _call(core: DeveloperCore, name: str, arguments: dict) -> dict:
         return core.inspect_development(arguments.get("session_id", ""))
     if name == "capy_development_finish":
         return core.finish_development(arguments.get("session_id", ""), arguments.get("disposition", ""))
+    if name == "capy_development_verify":
+        return core.verify_development(arguments)
     raise DeveloperError("MCP_TOOL_UNKNOWN", "unknown Capy Developer tool")
 
 
@@ -98,7 +115,7 @@ def handle(core: DeveloperCore, message: dict) -> dict | None:
         return _response(request_id, {
             "protocolVersion": "2025-06-18",
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "capy-developer", "version": "0.1.0"},
+            "serverInfo": {"name": "capy-developer", "version": "0.2.0"},
         })
     if method == "ping":
         return _response(request_id, {})
