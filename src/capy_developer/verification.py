@@ -493,7 +493,7 @@ class VerificationService:
         # The accepted DevKit's connection simulator uses AF_UNIX. macOS caps
         # socket paths at roughly 104 bytes, so a long configured cache root
         # needs a short, disposable OS-temp path for the child process only.
-        if os.name in {"posix", "nt"} and len(os.fsencode(str(managed))) + 48 >= 104:
+        if os.name == "posix" and len(os.fsencode(str(managed))) + 48 >= 104:
             external = Path(tempfile.mkdtemp(
                 prefix=f"cv-{verification_id.removeprefix('ver_')[:8]}-",
                 dir=self.config.verification_temporary_root,

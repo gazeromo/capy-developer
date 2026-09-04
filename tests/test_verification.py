@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from urllib.request import url2pathname
 from unittest import mock
 
-from capy_developer.config import Config
+from capy_developer.config import Config, _default_verification_temp_root
 from capy_developer.core import DeveloperCore
 from capy_developer.database import Database, SCHEMA_VERSION
 from capy_developer.errors import DeveloperError
@@ -332,6 +332,45 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual("FAILED", result["status"])
         self.assertEqual("FAILED", next(item for item in result["stages"] if item["name"] == "pack_a")["status"])
         self.assertIsNone(result["candidate_archive"])
+
+    def test_windows_default_temp_root_is_under_writable_user_temp(self):
+        with (
+            mock.patch("capy_developer.config.platform.system", return_value="Windows"),
+            mock.patch("capy_developer.config.tempfile.gettempdir", return_value=r"C:\\Users\\developer\\Temp"),
+        ):
+            self.assertEqual(
+                Path(r"C:\\Users\\developer\\Temp") / "capy-developer",
+                _default_verification_temp_root(),
+            )
+
+    def test_large_flat_candidate_does_not_exceed_git_output_limit(self):
+        session, workspace = self.start()
+        for index in range(2500):
+            (workspace / f"large-{index:04d}.txt").write_text("x", encoding="utf-8")
+        run_git(["add", "--all"], cwd=workspace)
+        run_git(["commit", "-q", "-m", "large flat candidate"], cwd=workspace)
+        candidate = run_git(["rev-parse", "HEAD"], cwd=workspace)
+        payload = self.payload(session, workspace)
+        payload["candidate_commit"] = candidate
+        result = self.core.verify_development(payload)
+        self.assertEqual("VERIFIED", result["classification"])
+
+    def test_candidate_gitlink_is_rejected_without_enumerating_full_tree(self):
+        session, workspace = self.start()
+        nested = workspace / "nested"
+        nested.mkdir()
+        run_git(["init", "--initial-branch=main"], cwd=nested)
+        run_git(["config", "user.name", "Fixture"], cwd=nested)
+        run_git(["config", "user.email", "fixture@localhost"], cwd=nested)
+        (nested / "README.md").write_text("nested\n", encoding="utf-8")
+        run_git(["add", "README.md"], cwd=nested)
+        run_git(["commit", "-q", "-m", "nested"], cwd=nested)
+        nested_commit = run_git(["rev-parse", "HEAD"], cwd=nested)
+        run_git(["update-index", "--add", "--cacheinfo", f"160000,{nested_commit},nested"], cwd=workspace)
+        run_git(["commit", "-q", "-m", "add unsupported gitlink"], cwd=workspace)
+        with self.assertRaises(DeveloperError) as caught:
+            self.core.verify_development(self.payload(session, workspace))
+        self.assertEqual("CANDIDATE_GITLINK_UNSUPPORTED", caught.exception.code)
 
     def test_separate_sessions_can_verify_concurrently(self):
         first, first_workspace = self.start("parallel-a")

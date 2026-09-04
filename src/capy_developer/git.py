@@ -144,8 +144,14 @@ def validate_candidate(path: Path, branch: str, candidate: str, base: str) -> di
         if marker_path and resolved_marker.exists():
             raise DeveloperError("GIT_OPERATION_UNRESOLVED", "managed worktree has an unresolved Git operation")
     tree = run_git(["-C", str(path), "rev-parse", f"{candidate}^{{tree}}"])
-    listing = run_git(["-C", str(path), "ls-tree", "-r", candidate])
-    if any(line.startswith("160000 ") for line in listing.splitlines()):
+    try:
+        submodules = run_git(["-C", str(path), "submodule", "status", "--recursive"])
+    except DeveloperError as exc:
+        raise DeveloperError(
+            "CANDIDATE_GITLINK_UNSUPPORTED",
+            "candidate submodule state is invalid or unsupported for portable V0 verification",
+        ) from exc
+    if submodules:
         raise DeveloperError("CANDIDATE_GITLINK_UNSUPPORTED", "Git submodules are unsupported for portable V0 verification")
     return {"commit": candidate, "tree": tree, "branch": branch, "base_commit": base}
 

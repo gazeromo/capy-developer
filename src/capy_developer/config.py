@@ -32,9 +32,10 @@ def _default_cache_root() -> Path:
 
 def _default_verification_temp_root() -> Path:
     if platform.system() == "Windows":
-        # A drive-root child keeps verifier stage paths bounded on Windows;
-        # operators can override this managed root.
-        return Path(Path(tempfile.gettempdir()).anchor) / "cv"
+        # The accepted resource-only DevKit no longer opens an AF_UNIX socket
+        # on Windows, so use the per-user writable temporary directory rather
+        # than assuming permission to create a drive-root child.
+        return Path(tempfile.gettempdir()) / "capy-developer"
     return Path("/tmp/cv") if Path("/tmp").is_dir() else Path(tempfile.gettempdir()) / "cv"
 
 
