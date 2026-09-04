@@ -95,30 +95,40 @@ def normalize_repository(value: str) -> str:
 def operation_lock(path: Path, timeout: float = 30.0):
     deadline = time.monotonic() + timeout
     path.parent.mkdir(parents=True, exist_ok=True)
-    while True:
+    handle = path.open("a+b")
+    if handle.tell() == 0:
+        handle.write(b"\0")
+        handle.flush()
+    locked = False
+    while not locked:
         try:
-            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            os.write(descriptor, f"{os.getpid()}\n".encode())
-            os.close(descriptor)
-            break
-        except FileExistsError:
-            try:
-                stale = time.time() - path.stat().st_mtime > max(timeout * 2, 120)
-            except FileNotFoundError:
-                continue
-            if stale:
-                try:
-                    path.unlink()
-                except FileNotFoundError:
-                    pass
-                continue
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locked = True
+        except OSError:
             if time.monotonic() >= deadline:
+                handle.close()
                 raise DeveloperError("OPERATION_BUSY", "another Capy Developer operation is active")
             time.sleep(0.05)
     try:
         yield
     finally:
         try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()

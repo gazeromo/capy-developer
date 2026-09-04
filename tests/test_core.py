@@ -17,6 +17,7 @@ from capy_developer.git import run_git
 from capy_developer.mcp import handle
 from capy_developer.toolchain import ACCEPTED_BUNDLE_SHA256, ACCEPTED_WHEEL_SHA256
 from capy_developer.util import normalize_repository
+from capy_developer.util import operation_lock
 
 
 def git(args: list[str], cwd: Path) -> str:
@@ -269,6 +270,20 @@ class CoreTestCase(unittest.TestCase):
         self.assertFalse(failures)
         self.assertEqual(2, len(results))
         self.assertEqual(results[0]["session_id"], results[1]["session_id"])
+
+    def test_operation_lock_is_released_when_process_exits(self):
+        lock = self.root / "crash.lock"
+        source = (
+            "import os,sys\n"
+            "from pathlib import Path\n"
+            "from capy_developer.util import operation_lock\n"
+            "with operation_lock(Path(sys.argv[1])):\n"
+            "    os._exit(0)\n"
+        )
+        completed = subprocess.run([sys.executable, "-c", source, str(lock)], check=False)
+        self.assertEqual(0, completed.returncode)
+        with operation_lock(lock, timeout=1):
+            self.assertTrue(lock.is_file())
 
     def test_mcp_and_core_results_have_semantic_parity(self):
         direct = self.start_new("parity")

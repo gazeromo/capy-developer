@@ -501,7 +501,6 @@ class DeveloperCore:
             if not session:
                 raise DeveloperError("SESSION_NOT_FOUND", "development session does not exist")
             project = db.execute("SELECT * FROM projects WHERE project_id=?", (session["project_id"],)).fetchone() if session["project_id"] else None
-            lock = db.execute("SELECT * FROM toolchain_locks WHERE project_id=?", (session["project_id"],)).fetchone() if session["project_id"] else None
             events = [
                 {"type": row["event_type"], "created_at": row["created_at"], "facts": json.loads(row["facts"])}
                 for row in db.execute("SELECT * FROM session_events WHERE session_id=? ORDER BY event_id", (session_id,))
@@ -532,7 +531,7 @@ class DeveloperCore:
             "exact_base_commit": session["exact_base_commit"],
             "development_branch": session["development_branch"],
             "workspace": workspace,
-            "toolchain": dict(lock) if lock else None,
+            "toolchain": self._refresh_toolchain(session["project_id"]) if session["project_id"] else None,
             "canonical_instruction_file": str(Path(session["worktree_path"]) / "CAPY.md") if session["worktree_path"] and (Path(session["worktree_path"]) / "CAPY.md").is_file() else None,
             "terminal": {"disposition": session["terminal_disposition"], "at": session["terminal_at"], "final_commit": session["final_commit"], "final_dirty": None if session["final_dirty"] is None else bool(session["final_dirty"])},
             "discrepancy": discrepancy,
@@ -558,9 +557,25 @@ class DeveloperCore:
     def _project_result(self, project_id: str, imported: bool = False) -> dict:
         with self.db.connect() as db:
             project = db.execute("SELECT * FROM projects WHERE project_id=?", (project_id,)).fetchone()
-            lock = db.execute("SELECT * FROM toolchain_locks WHERE project_id=?", (project_id,)).fetchone()
         return {
             "schema": PROJECT_SCHEMA, "ok": True, "imported": imported,
             "project": self._project_summary(dict(project)),
-            "toolchain": dict(lock) if lock else None,
+            "toolchain": self._refresh_toolchain(project_id),
         }
+
+    def _refresh_toolchain(self, project_id: str) -> dict | None:
+        with self.db.connect() as db:
+            row = db.execute("SELECT * FROM toolchain_locks WHERE project_id=?", (project_id,)).fetchone()
+            if not row:
+                return None
+            lock = ToolchainLock(
+                row["schema"], row["contract"], row["devkit_repository"], row["devkit_commit"],
+                row["wheel_filename"], row["wheel_sha256"], row["authoring_bundle_sha256"],
+                row["lock_source_path"], row["lock_status"], row["detail"],
+            )
+            availability = self.toolchains.availability(lock)
+            if availability != row["availability"]:
+                db.execute("UPDATE toolchain_locks SET availability=? WHERE project_id=?", (availability, project_id))
+            result = dict(row)
+            result["availability"] = availability
+            return result
