@@ -68,7 +68,12 @@ def normalize_repository(value: str) -> str:
     raw = value.strip()
     if not raw:
         raise DeveloperError("REPOSITORY_IDENTITY_INVALID", "repository identity is empty")
-    scp = re.fullmatch(r"(?:[^@\s]+@)?([^:\s]+):/?(.+)", raw)
+    native_path = Path(raw)
+    if native_path.is_absolute() or raw.startswith(".") or re.fullmatch(r"[A-Za-z]:[\\/].*", raw):
+        return safe_resolve(native_path, must_exist=False).as_uri()
+    if "::" in raw:
+        raise DeveloperError("REPOSITORY_PROTOCOL_UNSUPPORTED", "Git remote helpers are not supported")
+    scp = re.fullmatch(r"(?:[^@\s]+@)?([^:\s]+):/?([^:\s].*)", raw)
     if scp and "://" not in raw and not re.fullmatch(r"[A-Za-z]:[\\/].*", raw):
         host, repo_path = scp.groups()
         clean = repo_path.rstrip("/")
@@ -82,13 +87,18 @@ def normalize_repository(value: str) -> str:
         if clean.endswith(".git"):
             clean = clean[:-4]
         normalized_path = clean.lower() if parsed.hostname.lower() == "github.com" else clean
-        return f"git://{parsed.hostname.lower()}/{normalized_path}"
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise DeveloperError("REPOSITORY_IDENTITY_INVALID", "repository URL port is invalid") from exc
+        default_port = {"http": 80, "https": 443, "ssh": 22}.get(parsed.scheme)
+        authority = parsed.hostname.lower() if port is None or port == default_port else f"{parsed.hostname.lower()}:{port}"
+        return f"git://{authority}/{normalized_path}"
     if parsed.scheme == "file":
         return safe_resolve(Path(url2pathname(parsed.path)), must_exist=False).as_uri()
-    path = Path(raw)
-    if path.is_absolute() or raw.startswith("."):
-        return safe_resolve(path, must_exist=False).as_uri()
-    return raw.lower().removesuffix(".git").rstrip("/")
+    if parsed.scheme:
+        raise DeveloperError("REPOSITORY_PROTOCOL_UNSUPPORTED", "repository URL protocol is unsupported")
+    raise DeveloperError("REPOSITORY_IDENTITY_INVALID", "repository identity must be a native path or supported Git URL")
 
 
 @contextmanager

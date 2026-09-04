@@ -73,6 +73,8 @@ class DeveloperCore:
         if not path.is_dir():
             raise DeveloperError("IMPORT_PATH_INVALID", "the import path is not a directory")
         before = checkout_facts(path)
+        if not before["origin"]:
+            raise DeveloperError("CANONICAL_ORIGIN_REQUIRED", "import requires an explicit canonical origin remote")
         manifest = self._project_manifest(path)
         applications = self._discover_applications(path, manifest)
         if not applications:

@@ -155,6 +155,34 @@ class CoreTestCase(unittest.TestCase):
             normalize_repository("https://git.example/Owner/Repo.git"),
             normalize_repository("https://git.example/owner/repo.git"),
         )
+        self.assertNotEqual(
+            normalize_repository("https://git.example:8443/team/app.git"),
+            normalize_repository("https://git.example:9443/team/app.git"),
+        )
+        with self.assertRaises(DeveloperError) as caught:
+            normalize_repository("ext::touch marker")
+        self.assertEqual("REPOSITORY_PROTOCOL_UNSUPPORTED", caught.exception.code)
+
+    def test_originless_checkout_is_rejected_instead_of_path_identified(self):
+        repository = self.root / "originless"
+        repository.mkdir()
+        (repository / "capability.toml").write_text(
+            'schema = "capy.script/dev-v0"\nid = "demo.originless"\n', encoding="utf-8"
+        )
+        git(["init", "--initial-branch=main"], repository)
+        git(["config", "user.name", "Fixture"], repository)
+        git(["config", "user.email", "fixture@localhost"], repository)
+        git(["add", "--all"], repository)
+        git(["commit", "-m", "fixture"], repository)
+        with self.assertRaises(DeveloperError) as caught:
+            self.core.import_project(str(repository))
+        self.assertEqual("CANONICAL_ORIGIN_REQUIRED", caught.exception.code)
+
+    def test_import_disables_repository_fsmonitor_command(self):
+        checkout, _ = self.fixture("fsmonitor", "demo.fsmonitor")
+        git(["config", "core.fsmonitor", "definitely-not-an-executable"], checkout)
+        result = self.core.import_project(str(checkout))
+        self.assertTrue(result["ok"])
 
     def test_ambiguous_alias_mutates_nothing(self):
         first, _ = self.fixture("first", "demo.first", project_name="Same")

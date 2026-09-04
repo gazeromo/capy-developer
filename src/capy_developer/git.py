@@ -9,10 +9,25 @@ from .util import HEX40, normalize_repository
 
 
 def run_git(arguments: list[str], *, cwd: Path | None = None, check: bool = True) -> str:
-    environment = os.environ.copy()
-    environment.update({"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"})
+    environment = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
+    environment.update({
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_ATTR_NOSYSTEM": "1",
+    })
+    safe_configuration = [
+        "-c", "core.fsmonitor=false",
+        "-c", "protocol.allow=never",
+        "-c", "protocol.file.allow=always",
+        "-c", "protocol.http.allow=always",
+        "-c", "protocol.https.allow=always",
+        "-c", "protocol.ssh.allow=always",
+        "-c", "protocol.git.allow=always",
+    ]
     completed = subprocess.run(
-        ["git", *arguments], cwd=cwd, env=environment, text=True,
+        ["git", *safe_configuration, *arguments], cwd=cwd, env=environment, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False,
     )
     if check and completed.returncode != 0:
@@ -30,7 +45,11 @@ def checkout_facts(path: Path) -> dict:
     require_checkout(path)
     commit = run_git(["-C", str(path), "rev-parse", "HEAD"])
     branch = run_git(["-C", str(path), "symbolic-ref", "--short", "-q", "HEAD"], check=False) or None
-    origin = run_git(["-C", str(path), "remote", "get-url", "origin"], check=False) or path.resolve().as_uri()
+    origin = run_git(["-C", str(path), "remote", "get-url", "origin"], check=False) or None
+    if origin and "://" not in origin and not origin.startswith("git@"):
+        candidate = Path(origin)
+        if not candidate.is_absolute():
+            origin = (path / candidate).resolve().as_uri()
     status = run_git(["-C", str(path), "status", "--porcelain=v1"])
     return {"commit": commit, "branch": branch, "origin": origin, "dirty": bool(status)}
 
