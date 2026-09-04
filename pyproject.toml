@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capy-developer"
+version = "0.1.0"
+description = "Harness-neutral Capy project and development-session foundation"
+requires-python = ">=3.11"
+license = {text = "Proprietary"}
+dependencies = []
+
+[project.scripts]
+capy-dev = "capy_developer.cli:main"
+
+[tool.setuptools.package-data]
+capy_developer = ["data/*.zip"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
