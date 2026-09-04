@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -8,12 +9,13 @@ import sys
 import tempfile
 import threading
 import unittest
+import zipfile
 from pathlib import Path
 
 from capy_developer.config import Config
 from capy_developer.core import DeveloperCore
 from capy_developer.errors import DeveloperError
-from capy_developer.git import run_git
+from capy_developer.git import checkout_facts, run_git
 from capy_developer.mcp import handle
 from capy_developer.toolchain import ACCEPTED_BUNDLE_SHA256, ACCEPTED_WHEEL_SHA256
 from capy_developer.util import normalize_repository
@@ -167,6 +169,53 @@ class CoreTestCase(unittest.TestCase):
         with self.assertRaises(DeveloperError) as caught:
             normalize_repository("ext::touch marker")
         self.assertEqual("REPOSITORY_PROTOCOL_UNSUPPORTED", caught.exception.code)
+
+    def test_non_git_username_scp_origin_remains_remote_identity(self):
+        checkout, _ = self.fixture("scp-user", "demo.scp_user")
+        git(["remote", "set-url", "origin", "alice@example.com:team/repo.git"], checkout)
+        facts = checkout_facts(checkout)
+        self.assertEqual("alice@example.com:team/repo.git", facts["origin"])
+        self.assertEqual("git://example.com/team/repo", normalize_repository(facts["origin"]))
+
+    def test_reimport_replaces_stale_application_identities(self):
+        checkout, _ = self.fixture("applications", "demo.old")
+        self.core.import_project(str(checkout))
+        (checkout / "capability.toml").write_text(
+            'schema = "capy.script/dev-v0"\nid = "demo.new"\nname = "Fixture"\n', encoding="utf-8"
+        )
+        git(["config", "user.name", "Fixture"], checkout)
+        git(["config", "user.email", "fixture@localhost"], checkout)
+        git(["add", "capability.toml"], checkout)
+        git(["commit", "-m", "replace application"], checkout)
+        git(["push", "origin", "main"], checkout)
+        self.core.import_project(str(checkout))
+        self.assertEqual([], self.core.search_projects("demo.old")["matches"])
+        matches = self.core.search_projects("demo.new")["matches"]
+        self.assertEqual([["demo.new"]], [match["application_ids"] for match in matches])
+
+    def test_legacy_bundle_requires_actual_wheel_digest(self):
+        expected = "1" * 64
+        lock = (
+            'repository = "https://github.com/example/devkit"\n'
+            f'commit = "{"2" * 40}"\n'
+            'wheel = "devkit.whl"\n'
+            f'wheel_sha256 = "{expected}"\n'
+            'contract = "capy.script/dev-v0"\n'
+        )
+        checkout, _ = self.fixture("legacy-bytes", "demo.legacy_bytes", lock=lock)
+        bundle = self.config.cache_root / "toolchains" / "sha256" / "pending" / "authoring-bundle.zip"
+        bundle.parent.mkdir(parents=True)
+        with zipfile.ZipFile(bundle, "w") as archive:
+            archive.writestr("RELEASE-MANIFEST.json", json.dumps({
+                "wheel_filename": "devkit.whl", "wheel_sha256": expected,
+            }))
+            archive.writestr("wheel/devkit.whl", b"wrong wheel bytes")
+        digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
+        destination = bundle.parent.parent / digest / bundle.name
+        destination.parent.mkdir()
+        bundle.replace(destination)
+        result = self.core.import_project(str(checkout))
+        self.assertEqual("MISSING", result["toolchain"]["availability"])
 
     def test_originless_checkout_is_rejected_instead_of_path_identified(self):
         repository = self.root / "originless"

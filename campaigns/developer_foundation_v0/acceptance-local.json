@@ -28,7 +28,7 @@
     "ready": 2,
     "sessions": 3
   },
-  "created_at": "2026-09-04T11:19:08.043004Z",
+  "created_at": "2026-09-04T11:24:46.841829Z",
   "developer_ceremony": {
     "branch_or_worktree_decisions": 0,
     "devkit_version_decisions": 0,
@@ -41,9 +41,9 @@
     "proforma": "c21a308ec539898da8b6801ffc54845826bfd6cf"
   },
   "project_ids": {
-    "fedex": "prj_857d278c56184a82b8058490e2bf6abf",
-    "new": "prj_e7a28cf4e37d4ee99d6f2638a8d00dd2",
-    "proforma": "prj_11c554d7b65946b7943fcda5d277d4bc"
+    "fedex": "prj_cb1dc6ae2b0f464aa8799cc2117c4efd",
+    "new": "prj_72fb0262f6e34dbaba88faf1850b0374",
+    "proforma": "prj_ba5411c4c00c4e578f0c93164277ec09"
   },
   "schema": "capy.developer-foundation-acceptance/v0",
   "status": "passed"

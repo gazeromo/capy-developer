@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -46,7 +47,8 @@ def checkout_facts(path: Path) -> dict:
     commit = run_git(["-C", str(path), "rev-parse", "HEAD"])
     branch = run_git(["-C", str(path), "symbolic-ref", "--short", "-q", "HEAD"], check=False) or None
     origin = run_git(["-C", str(path), "remote", "get-url", "origin"], check=False) or None
-    if origin and "://" not in origin and not origin.startswith("git@"):
+    scp_remote = origin and re.fullmatch(r"(?:[^@\s]+@)?[^:\s]+:/?[^:\s].*", origin)
+    if origin and "://" not in origin and not scp_remote:
         candidate = Path(origin)
         if not candidate.is_absolute():
             origin = (path / candidate).resolve().as_uri()

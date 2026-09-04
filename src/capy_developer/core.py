@@ -128,6 +128,7 @@ class DeveloperCore:
                     "INSERT OR IGNORE INTO project_aliases(project_id,alias,source) VALUES (?,?,?)",
                     (project_id, alias, "import"),
                 )
+            db.execute("DELETE FROM project_applications WHERE project_id=?", (project_id,))
             for application_id in applications:
                 db.execute(
                     "INSERT OR IGNORE INTO project_applications(project_id,application_id,source) VALUES (?,?,?)",

@@ -105,26 +105,33 @@ def normalize_repository(value: str) -> str:
 def operation_lock(path: Path, timeout: float = 30.0):
     deadline = time.monotonic() + timeout
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle = path.open("a+b")
-    if handle.tell() == 0:
-        handle.write(b"\0")
-        handle.flush()
-    locked = False
-    while not locked:
+    handle = None
+    while handle is None:
+        candidate = None
+        descriptor = None
         try:
-            handle.seek(0)
+            descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+            candidate = os.fdopen(descriptor, "r+b")
+            descriptor = None
+            candidate.seek(0)
             if os.name == "nt":
                 import msvcrt
 
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                msvcrt.locking(candidate.fileno(), msvcrt.LK_NBLCK, 1)
             else:
                 import fcntl
 
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            locked = True
+                fcntl.flock(candidate.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if os.fstat(candidate.fileno()).st_size == 0:
+                candidate.write(b"\0")
+                candidate.flush()
+            handle = candidate
         except OSError:
+            if candidate is not None:
+                candidate.close()
+            elif descriptor is not None:
+                os.close(descriptor)
             if time.monotonic() >= deadline:
-                handle.close()
                 raise DeveloperError("OPERATION_BUSY", "another Capy Developer operation is active")
             time.sleep(0.05)
     try:

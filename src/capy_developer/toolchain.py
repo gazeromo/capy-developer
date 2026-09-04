@@ -154,7 +154,14 @@ class ToolchainCache:
             try:
                 with zipfile.ZipFile(bundle) as archive:
                     manifest = json.loads(archive.read("RELEASE-MANIFEST.json"))
-                if manifest.get("wheel_sha256") == lock.wheel_sha256 and sha256_file(bundle) == bundle.parent.name:
+                    wheel_name = manifest["wheel_filename"]
+                    wheel_bytes = archive.read(f"wheel/{wheel_name}")
+                actual_wheel_sha256 = hashlib.sha256(wheel_bytes).hexdigest()
+                if (
+                    manifest.get("wheel_sha256") == lock.wheel_sha256
+                    and actual_wheel_sha256 == lock.wheel_sha256
+                    and sha256_file(bundle) == bundle.parent.name
+                ):
                     return "AVAILABLE"
             except (OSError, KeyError, json.JSONDecodeError, zipfile.BadZipFile):
                 continue
