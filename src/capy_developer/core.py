@@ -525,6 +525,7 @@ class DeveloperCore:
             busy_code="VERIFICATION_BUSY",
             busy_detail="a live verification prevents finishing this development session",
         ):
+            self.verifications.reconcile(session_id, lock_held=True)
             return self._finish_development_unlocked(session_id, disposition)
 
     def _finish_development_unlocked(self, session_id: str, disposition: str) -> dict:

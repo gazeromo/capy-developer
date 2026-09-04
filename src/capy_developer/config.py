@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import platform
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,12 +27,19 @@ def _default_cache_root() -> Path:
     return base / "capy" / "developer"
 
 
+def _default_verification_temp_root() -> Path:
+    if platform.system() == "Windows":
+        return Path(tempfile.gettempdir()) / "cv"
+    return Path("/tmp/cv") if Path("/tmp").is_dir() else Path(tempfile.gettempdir()) / "cv"
+
+
 @dataclass(frozen=True)
 class Config:
     data_root: Path
     cache_root: Path
     repositories_root: Path
     worktrees_root: Path
+    temporary_root: Path | None = None
 
     @classmethod
     def from_environment(cls) -> "Config":
@@ -39,11 +47,19 @@ class Config:
         cache = Path(os.environ.get("CAPY_DEV_CACHE_ROOT", _default_cache_root()))
         repositories = Path(os.environ.get("CAPY_DEV_REPOSITORIES_ROOT", data / "repositories"))
         worktrees = Path(os.environ.get("CAPY_DEV_WORKTREES_ROOT", data / "worktrees"))
-        return cls(data, cache, repositories, worktrees)
+        temporary = Path(os.environ.get("CAPY_DEV_VERIFICATION_TEMP_ROOT", _default_verification_temp_root()))
+        return cls(data, cache, repositories, worktrees, temporary)
 
     def ensure(self) -> None:
-        for path in (self.data_root, self.cache_root, self.repositories_root, self.worktrees_root):
+        for path in (
+            self.data_root, self.cache_root, self.repositories_root,
+            self.worktrees_root, self.verification_temporary_root,
+        ):
             path.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def verification_temporary_root(self) -> Path:
+        return self.temporary_root or _default_verification_temp_root()
 
     @property
     def database(self) -> Path:

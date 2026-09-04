@@ -154,5 +154,5 @@ def add_detached_worktree(repository_worktree: Path, destination: Path, commit: 
 
 
 def remove_detached_worktree(repository_worktree: Path, destination: Path) -> None:
-    if destination.exists():
-        run_git(["-C", str(repository_worktree), "worktree", "remove", "--force", str(destination)], check=False)
+    run_git(["-C", str(repository_worktree), "worktree", "remove", "--force", str(destination)], check=False)
+    run_git(["-C", str(repository_worktree), "worktree", "prune", "--expire", "now"], check=False)

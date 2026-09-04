@@ -16,6 +16,18 @@ from .util import HEX40, HEX64, stable_digest
 ACCEPTED_DEVKIT_MAIN = "0cf018faa02ade73ab0805aa0617c55ce36fa7b1"
 ACCEPTED_BUNDLE_SHA256 = "cb7e4073a99bf8596509af02f466f90b5792d1d8075dffab0f27bbb2df0679e8"
 ACCEPTED_WHEEL_SHA256 = "165faba51b56b667b087228e1c556b1e2369d0e61bb469785ddff1bad9d6e2d0"
+ACCEPTED_SOURCE_COMMIT = "55fc109b5f494086c03560794e7be74d75f1d93f"
+ACCEPTED_REPOSITORY = "gazeromo/capy-script-devkit"
+
+
+TRUSTED_RELEASES = {
+    ACCEPTED_DEVKIT_MAIN: {
+        "repository": ACCEPTED_REPOSITORY,
+        "bundle_sha256": ACCEPTED_BUNDLE_SHA256,
+        "wheel_sha256": ACCEPTED_WHEEL_SHA256,
+        "source_commit": ACCEPTED_SOURCE_COMMIT,
+    },
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -168,6 +180,15 @@ class ToolchainCache:
             raise DeveloperError("TOOLCHAIN_LOCK_INVALID", "candidate DevKit lock is invalid")
         if lock.contract != "capy.script/dev-v0":
             raise DeveloperError("TOOLCHAIN_CONTRACT_UNSUPPORTED", "candidate DevKit contract is unsupported")
+        trusted = TRUSTED_RELEASES.get(str(lock.commit))
+        if trusted is None:
+            raise DeveloperError("TOOLCHAIN_UNAVAILABLE", "the locked DevKit release binding is not trusted locally")
+        if lock.repository != trusted["repository"]:
+            raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", "DevKit repository does not match its trusted release binding")
+        if lock.wheel_sha256 != trusted["wheel_sha256"]:
+            raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", "DevKit wheel does not match its trusted release binding")
+        if lock.bundle_sha256 and lock.bundle_sha256 != trusted["bundle_sha256"]:
+            raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", "DevKit bundle does not match its trusted release binding")
         if self.availability(lock) != "AVAILABLE":
             raise DeveloperError("TOOLCHAIN_UNAVAILABLE", "the exact locked DevKit bytes are not available locally")
         candidates = []
@@ -187,6 +208,9 @@ class ToolchainCache:
                     inspected.get("contract") == lock.contract
                     and inspected.get("wheel_filename") == lock.wheel
                     and inspected.get("wheel_sha256") == lock.wheel_sha256
+                    and inspected.get("source_repository") == trusted["repository"]
+                    and inspected.get("source_commit") == trusted["source_commit"]
+                    and digest == trusted["bundle_sha256"]
                 ):
                     bundle, manifest = candidate, inspected
                     break
@@ -228,6 +252,14 @@ class ToolchainCache:
             return "UNBOUND"
         if lock.lock_status != "VALID":
             return "INVALID"
+        trusted = TRUSTED_RELEASES.get(str(lock.commit))
+        if (
+            trusted is None
+            or lock.repository != trusted["repository"]
+            or lock.wheel_sha256 != trusted["wheel_sha256"]
+            or (lock.bundle_sha256 is not None and lock.bundle_sha256 != trusted["bundle_sha256"])
+        ):
+            return "MISSING"
         if lock.bundle_sha256:
             if lock.bundle_sha256 == ACCEPTED_BUNDLE_SHA256:
                 self.accepted_bundle()

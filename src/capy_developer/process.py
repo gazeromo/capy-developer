@@ -64,7 +64,17 @@ def run_process(
     except subprocess.TimeoutExpired:
         timed_out = True
         if os.name == "nt":
-            process.terminate()
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                process.kill()
         else:
             try:
                 os.killpg(process.pid, signal.SIGTERM)
@@ -80,7 +90,19 @@ def run_process(
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-            stdout, stderr = process.communicate()
+            try:
+                stdout, stderr = process.communicate(timeout=1)
+            except subprocess.TimeoutExpired as error:
+                stdout = error.output or b""
+                stderr = error.stderr or b""
+                if process.stdout is not None:
+                    process.stdout.close()
+                if process.stderr is not None:
+                    process.stderr.close()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
     stdout_text, stdout_omitted = _bounded(stdout)
     stderr_text, stderr_omitted = _bounded(stderr)
     terminal_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

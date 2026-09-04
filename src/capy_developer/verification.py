@@ -122,6 +122,12 @@ class VerificationService:
                         self.db.event(db, session_id, "VERIFICATION_STARTED", {"verification_id": verification_id})
                     allocated = True
                 temporary, external_temp = self._temporary_root(attempt_root, verification_id)
+                if external_temp is not None:
+                    with self.db.connect() as db:
+                        db.execute(
+                            "UPDATE verification_attempts SET temporary_path=?,updated_at=? WHERE verification_id=?",
+                            (str(external_temp), utc_now(), verification_id),
+                        )
                 self._execute(
                     verification_id,
                     repository_worktree,
@@ -158,8 +164,8 @@ class VerificationService:
                         remove_detached_worktree(repository_worktree, checkout)
                 if attempt_root.exists():
                     shutil.rmtree(attempt_root, ignore_errors=True)
-                if external_temp is not None and external_temp.exists():
-                    shutil.rmtree(external_temp, ignore_errors=True)
+                if external_temp is not None:
+                    self._cleanup_external_temp(verification_id, external_temp)
             if not allocated:
                 raise DeveloperError("VERIFIER_INTERNAL_ERROR", "verification attempt was not allocated")
             return self.result(verification_id)
@@ -441,20 +447,42 @@ class VerificationService:
         # socket paths at roughly 104 bytes, so a long configured cache root
         # needs a short, disposable OS-temp path for the child process only.
         if os.name in {"posix", "nt"} and len(os.fsencode(str(managed))) + 48 >= 104:
-            external = self._external_temp_path(verification_id)
-            if external.is_symlink():
-                raise DeveloperError("VERIFICATION_PATH_CONFLICT", "disposable temp path may not be a symlink")
-            external.mkdir(mode=0o700)
+            external = Path(tempfile.mkdtemp(
+                prefix=f"cv-{verification_id.removeprefix('ver_')[:8]}-",
+                dir=self.config.verification_temporary_root,
+            ))
+            if len(os.fsencode(str(external))) + 48 >= 104:
+                shutil.rmtree(external, ignore_errors=True)
+                raise DeveloperError(
+                    "VERIFICATION_TEMP_PATH_TOO_LONG",
+                    "configured verification temporary root is too long for the locked DevKit",
+                )
+            (external / ".capy-verification-owner").write_text(verification_id, encoding="utf-8")
             return external, external
         return managed, None
 
-    @staticmethod
-    def _external_temp_path(verification_id: str) -> Path:
-        # The system temp directory is materially shorter than a configured
-        # Capy cache root on Windows, while /tmp is the shortest stable choice
-        # on Unix. The child-only directory is collision-checked and removed.
-        short_root = Path("/tmp") if Path("/tmp").is_dir() else Path(tempfile.gettempdir())
-        return short_root / f"cv-{verification_id.removeprefix('ver_')[:12]}"
+    def _cleanup_external_temp(self, verification_id: str, path: Path) -> None:
+        root = self.config.verification_temporary_root.resolve()
+        if path.is_symlink():
+            return
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError:
+            return
+        marker = resolved / ".capy-verification-owner"
+        if (
+            resolved.parent != root
+            or not resolved.name.startswith(f"cv-{verification_id.removeprefix('ver_')[:8]}-")
+            or marker.is_symlink()
+            or not marker.is_file()
+        ):
+            return
+        try:
+            owner = marker.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return
+        if owner == verification_id:
+            shutil.rmtree(resolved, ignore_errors=True)
 
     def _environment(self, home: Path, temporary: Path) -> dict[str, str]:
         home.mkdir(parents=True, exist_ok=True)
@@ -619,13 +647,13 @@ class VerificationService:
             "error": None if not attempt["error_code"] else {"code": attempt["error_code"], "detail": attempt["error_detail"]},
         }
 
-    def reconcile(self, session_id: str) -> None:
+    def reconcile(self, session_id: str, *, lock_held: bool = False) -> None:
         with self.db.connect() as db:
             running = db.execute(
                 "SELECT verification_id FROM verification_attempts WHERE session_id=? AND status='RUNNING'",
                 (session_id,),
             ).fetchall()
-        if running and lock_is_available(self.config.verification_lock(session_id)):
+        if running and (lock_held or lock_is_available(self.config.verification_lock(session_id))):
             for row in running:
                 self._terminalize(row[0], "INTERRUPTED", "VERIFIER_PROCESS_INTERRUPTED")
                 self._cleanup_interrupted(row[0])
@@ -643,9 +671,8 @@ class VerificationService:
                 remove_detached_worktree(repository_worktree, checkout)
         if attempt_root.exists():
             shutil.rmtree(attempt_root, ignore_errors=True)
-        external = self._external_temp_path(verification_id)
-        if external.exists() and not external.is_symlink():
-            shutil.rmtree(external, ignore_errors=True)
+        if attempt.get("temporary_path"):
+            self._cleanup_external_temp(verification_id, Path(attempt["temporary_path"]))
 
     def latest(self, session_id: str, workspace: dict | None) -> dict:
         self.reconcile(session_id)

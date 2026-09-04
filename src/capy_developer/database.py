@@ -144,6 +144,7 @@ class Database:
                     archive_sha256 TEXT,
                     archive_size_bytes INTEGER,
                     archive_path TEXT,
+                    temporary_path TEXT,
                     error_code TEXT,
                     error_detail TEXT
                 );

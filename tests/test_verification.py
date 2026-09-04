@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -26,10 +27,14 @@ class VerificationTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="cv-test-")
         self.root = Path(self.temporary.name)
-        self.config = Config(self.root / "s", self.root / "c", self.root / "r", self.root / "w")
+        self.verification_temp = Path("/tmp") / self.root.name
+        self.config = Config(
+            self.root / "s", self.root / "c", self.root / "r", self.root / "w", self.verification_temp,
+        )
         self.core = DeveloperCore(self.config)
 
     def tearDown(self):
+        shutil.rmtree(self.verification_temp, ignore_errors=True)
         self.temporary.cleanup()
 
     def start(self, key: str = "start") -> tuple[dict, Path]:
@@ -133,6 +138,19 @@ class VerificationTests(unittest.TestCase):
             self.core.verify_development(self.payload(session, workspace))
         self.assertEqual("TOOLCHAIN_UNAVAILABLE", caught.exception.code)
         self.assertNotEqual(ACCEPTED_WHEEL_SHA256, "2" * 64)
+
+    def test_trusted_wheel_cannot_be_relabelled_as_another_repository(self):
+        session, workspace = self.start()
+        lock = (workspace / "capy.lock").read_text(encoding="utf-8")
+        (workspace / "capy.lock").write_text(
+            lock.replace("gazeromo/capy-script-devkit", "attacker/example"), encoding="utf-8"
+        )
+        self.commit(workspace, "mislabel trusted wheel")
+        with self.assertRaises(DeveloperError) as caught:
+            self.core.verify_development(self.payload(session, workspace))
+        self.assertEqual("TOOLCHAIN_INTEGRITY_FAILED", caught.exception.code)
+        with self.core.db.connect() as db:
+            self.assertEqual(0, db.execute("SELECT count(*) FROM verification_attempts").fetchone()[0])
 
     def test_source_mutation_is_causal_failure(self):
         session, workspace = self.start()
@@ -272,16 +290,14 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual("VERIFICATION_PATH_CONFLICT", result["error"]["code"])
         self.assertEqual("deterministic conflict", result["error"]["detail"])
 
-    def test_long_windows_attempt_path_uses_short_disposable_child_temp(self):
+    def test_long_attempt_path_uses_short_disposable_child_temp(self):
         managed_root = self.root / ("configured-cache-" * 8)
-        external = self.root / "cv-short"
-        with mock.patch("capy_developer.verification.os.name", "nt"), mock.patch.object(
-            self.core.verifications, "_external_temp_path", return_value=external
-        ):
-            selected, cleanup = self.core.verifications._temporary_root(managed_root, "ver_1234567890abcdef")
-        self.assertEqual(external, selected)
-        self.assertEqual(external, cleanup)
-        self.assertTrue(external.is_dir())
+        selected, cleanup = self.core.verifications._temporary_root(managed_root, "ver_1234567890abcdef")
+        self.assertEqual(selected, cleanup)
+        self.assertEqual(self.config.verification_temporary_root, selected.parent)
+        self.assertEqual("ver_1234567890abcdef", (selected / ".capy-verification-owner").read_text())
+        self.core.verifications._cleanup_external_temp("ver_1234567890abcdef", selected)
+        self.assertFalse(selected.exists())
 
     def test_live_session_lock_returns_busy_and_blocks_finish(self):
         session, workspace = self.start()
@@ -317,6 +333,34 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual("INTERRUPTED", inspected["verification"]["latest"]["status"])
         self.assertEqual("VERIFIER_PROCESS_INTERRUPTED", inspected["verification"]["latest"]["classification"])
         self.assertFalse(attempt_root.exists())
+
+    def test_finish_reconciles_abandoned_attempt_while_holding_session_lock(self):
+        session, workspace = self.start()
+        payload = self.payload(session, workspace)
+        now = "2026-09-04T00:00:00Z"
+        with self.core.db.connect() as db:
+            db.execute(
+                """INSERT INTO verification_attempts(
+                verification_id,session_id,idempotency_key,request_digest,application_id,
+                candidate_commit,candidate_tree,base_commit,development_branch,lock_digest,
+                contract,release_binding_commit,authoring_bundle_sha256,wheel_sha256,status,
+                started_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'RUNNING',?,?)""",
+                ("ver_finish_abandoned", session["session_id"], "finish-abandoned", "digest", "demo.verify_fixture",
+                 payload["candidate_commit"], run_git(["rev-parse", "HEAD^{tree}"], cwd=workspace),
+                 session["exact_base_commit"], session["development_branch"], "4" * 64,
+                 "capy.script/dev-v0", "1" * 40, "2" * 64, "3" * 64, now, now),
+            )
+        finished = self.core.finish_development(session["session_id"], "COMPLETED")
+        self.assertEqual("COMPLETED", finished["status"])
+        self.assertEqual("INTERRUPTED", finished["verification"]["latest"]["status"])
+        self.assertEqual("INTERRUPTED", finished["verification"]["current_head_state"])
+
+    def test_external_temp_cleanup_requires_durable_ownership_marker(self):
+        path = self.config.verification_temporary_root / "cv-12345678-takeover"
+        path.mkdir()
+        (path / ".capy-verification-owner").write_text("ver_someone_else", encoding="utf-8")
+        self.core.verifications._cleanup_external_temp("ver_12345678abcdef", path)
+        self.assertTrue(path.exists())
 
     def test_candidate_must_descend_from_exact_base(self):
         session, workspace = self.start()
@@ -398,6 +442,32 @@ class VerificationTests(unittest.TestCase):
         )
         self.assertTrue(result.timed_out)
         self.assertIsNone(result.exit_code)
+
+    def test_process_timeout_kills_descendant_that_inherits_output_handles(self):
+        started = __import__("time").monotonic()
+        result = run_process(
+            [
+                sys.executable,
+                "-c",
+                "import subprocess,sys,time; subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); time.sleep(30)",
+            ],
+            cwd=self.root,
+            environment={"PATH": os.environ.get("PATH", "")},
+            timeout=0.05,
+        )
+        self.assertTrue(result.timed_out)
+        self.assertLess(__import__("time").monotonic() - started, 10)
+
+    def test_cleanup_prunes_registration_when_checkout_directory_is_missing(self):
+        session, workspace = self.start()
+        checkout = self.root / "detached"
+        from capy_developer.git import add_detached_worktree, remove_detached_worktree
+
+        add_detached_worktree(workspace, checkout, run_git(["rev-parse", "HEAD"], cwd=workspace))
+        shutil.rmtree(checkout)
+        remove_detached_worktree(workspace, checkout)
+        registrations = run_git(["worktree", "list", "--porcelain"], cwd=workspace)
+        self.assertNotIn(str(checkout), registrations)
 
     def test_verify_input_rejects_unknown_fields_and_invalid_identity(self):
         session, workspace = self.start()
