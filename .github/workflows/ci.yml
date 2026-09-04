@@ -1,0 +1,34 @@
+name: qualification
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Configure Git fixture identity
+        run: |
+          git config --global user.name "Capy Developer CI"
+          git config --global user.email "capy-developer-ci@localhost"
+      - name: Install exact repository package
+        run: python -m pip install . --no-deps
+      - name: Launch installed command
+        run: capy-dev doctor --json
+      - name: Run source qualification
+        env:
+          PYTHONWARNINGS: error::ResourceWarning
+        run: python -m unittest discover -s tests -v

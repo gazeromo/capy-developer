@@ -1,0 +1,50 @@
+{
+  "boundary_changes": {
+    "capy_outcome_runtime": 0,
+    "coding_agent_launches": 0,
+    "imported_application_repositories": 0,
+    "production": 0,
+    "provider_calls": 0
+  },
+  "checks": {
+    "doctor": true,
+    "exact_search": true,
+    "fedex_cli_ready": true,
+    "fedex_import_idempotent": true,
+    "fedex_replay_exact": true,
+    "finish_idempotent": true,
+    "finish_preserves_worktree": true,
+    "mcp_four_tools": true,
+    "mcp_ready": true,
+    "mcp_separate_workspace": true,
+    "new_ready_available": true,
+    "new_replay_exact": true,
+    "proforma_imported": true,
+    "restart_inspect": true,
+    "source_unchanged": true
+  },
+  "counts": {
+    "projects": 3,
+    "ready": 2,
+    "sessions": 3
+  },
+  "created_at": "2026-09-04T11:08:09.162606Z",
+  "developer_ceremony": {
+    "branch_or_worktree_decisions": 0,
+    "devkit_version_decisions": 0,
+    "git_initialization_actions": 0,
+    "manual_template_copy_actions": 0,
+    "selected_repository_paths": 0
+  },
+  "fixture_heads": {
+    "fedex": "de79fd1d0c08ab01f85b5d25a7a6d69a672c5b94",
+    "proforma": "c21a308ec539898da8b6801ffc54845826bfd6cf"
+  },
+  "project_ids": {
+    "fedex": "prj_8396ae02c148422e8b343c612cc988bb",
+    "new": "prj_66830ea1492e4a2381316b1a19a3697b",
+    "proforma": "prj_13991753809542898de4d320f19affd7"
+  },
+  "schema": "capy.developer-foundation-acceptance/v0",
+  "status": "passed"
+}
