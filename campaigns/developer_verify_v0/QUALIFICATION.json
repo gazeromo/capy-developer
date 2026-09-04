@@ -5,6 +5,8 @@
   "base_commit": "124bf634ec023f064ebd7f051d049de65ff3228f",
   "source_commit": "034ee45c36616267596b97d1a91fbcab36e628fa",
   "source_tree": "f813cbf3a96e0fb4b9f393a638fcbe125b0699ae",
+  "evidence_commit": "c1dee28a7241d789a830ee5b274858b0a29cde7f",
+  "evidence_tree": "3623ed250f9c59d0e7a4b3a7f499692dd7a03aec",
   "version": "0.2.0",
   "qualification": {
     "local": "78 passed",
@@ -18,6 +20,12 @@
     "journey_archive_identity": "matched",
     "hidden_oracle": "valid, invalid, and empty passed against Journey A archive",
     "independent_fix_delta_review": "no actionable P0-P3 findings"
+  },
+  "evidence_head_ci": {
+    "run_id": 33895734089,
+    "head_sha": "c1dee28a7241d789a830ee5b274858b0a29cde7f",
+    "conclusion": "success",
+    "platforms": ["ubuntu-latest", "macos-latest", "windows-latest"]
   },
   "package": {
     "filename": "capy_developer-0.2.0-py3-none-any.whl",

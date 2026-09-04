@@ -5,9 +5,11 @@
   "base_commit": "124bf634ec023f064ebd7f051d049de65ff3228f",
   "source_commit": "034ee45c36616267596b97d1a91fbcab36e628fa",
   "source_tree": "f813cbf3a96e0fb4b9f393a638fcbe125b0699ae",
+  "evidence_commit": "c1dee28a7241d789a830ee5b274858b0a29cde7f",
+  "evidence_tree": "3623ed250f9c59d0e7a4b3a7f499692dd7a03aec",
   "qualification_receipt": {
     "path": "campaigns/developer_verify_v0/QUALIFICATION.json",
-    "sha256": "6cd85f854dde5c3b29ab3b6c81cabbce3a5af7b8b4ba4e958f7b7653132cfdf6"
+    "sha256": "ea1e4edead1e7f6ef27fa267466fc8d4b3d1f54e429328c9bb671b18d0451dfb"
   },
   "journeys": {
     "mcp": {
@@ -35,9 +37,16 @@
     "conclusion": "success",
     "tests_per_platform": 78
   },
+  "evidence_head_ci": {
+    "id": 33895734089,
+    "url": "https://github.com/gazeromo/capy-developer/actions/runs/33895734089",
+    "head_sha": "c1dee28a7241d789a830ee5b274858b0a29cde7f",
+    "conclusion": "success",
+    "tests_per_platform": 78
+  },
   "independent_review": {
     "path": "campaigns/developer_verify_v0/REVIEWS.md",
-    "sha256": "0d6d9b66e8af4800fe5a5c106a4bc05352202a0bef66d54f8d6572351a831b7f",
+    "sha256": "0b2470e323b933822e57edb0d771a12a24a3871b73c84b840464d21d9edfa64b",
     "result": "no actionable P0-P3 findings"
   },
   "historical_toolchain_exact_resolution": "passed",

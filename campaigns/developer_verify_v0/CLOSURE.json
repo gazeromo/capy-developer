@@ -1,0 +1,36 @@
+{
+  "schema": "capy.developer-verify-closure/v0",
+  "status": "accepted-for-final-closure-commit",
+  "repository": "gazeromo/capy-developer",
+  "base_commit": "124bf634ec023f064ebd7f051d049de65ff3228f",
+  "implementation": {
+    "commit": "034ee45c36616267596b97d1a91fbcab36e628fa",
+    "tree": "f813cbf3a96e0fb4b9f393a638fcbe125b0699ae",
+    "ci_run_id": 33892609472,
+    "ci_conclusion": "success"
+  },
+  "evidence": {
+    "commit": "c1dee28a7241d789a830ee5b274858b0a29cde7f",
+    "tree": "3623ed250f9c59d0e7a4b3a7f499692dd7a03aec",
+    "ci_run_id": 33895734089,
+    "ci_url": "https://github.com/gazeromo/capy-developer/actions/runs/33895734089",
+    "ci_conclusion": "success",
+    "tests_per_platform": 78,
+    "platforms": ["ubuntu-latest", "macos-latest", "windows-latest"]
+  },
+  "receipts": {
+    "qualification_sha256": "ea1e4edead1e7f6ef27fa267466fc8d4b3d1f54e429328c9bb671b18d0451dfb",
+    "release_candidate_sha256": "a5e79c2b133e7fcad7a93c4781fc7d704cf790a69252a81feea31fe68cfdd3fb",
+    "reviews_sha256": "0b2470e323b933822e57edb0d771a12a24a3871b73c84b840464d21d9edfa64b",
+    "wheel_sha256": "eec5b97f7d4c7e9778b32517238c70c37f8ad132fb6a063a7595fa62d56ba373"
+  },
+  "release_review": {
+    "initial_verdict": "NOT ACCEPT",
+    "findings": ["exact-commit role ambiguity", "evidence-head CI not recorded"],
+    "resolution": "Implementation and evidence commits are now explicit, and exact evidence-head CI passed on all required platforms."
+  },
+  "closure_commit_policy": "The commit containing this receipt changes evidence only. Its exact remote head must pass CI and receive a final independent closure-delta review before strict fast-forward merge.",
+  "remaining_blockers": [],
+  "published_or_deployed": false,
+  "windows_connection_bearing_conformance_claimed": false
+}

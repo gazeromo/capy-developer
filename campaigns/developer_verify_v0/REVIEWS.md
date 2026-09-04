@@ -25,3 +25,18 @@ and recorded cleanup failures, same-commit branch-drift staleness, and the
 platform-correct temporary-path test. Its read-only sandbox had no writable
 temporary directory, so execution there was unavailable; the exact commit was
 separately covered by the 78-test local run and Windows/macOS/Ubuntu CI.
+
+## Evidence-head release review
+
+Scope: exact evidence commit `c1dee28a7241d789a830ee5b274858b0a29cde7f`.
+
+The reviewer confirmed the wheel digest and Journey A/B receipts were internally
+consistent, but returned `NOT ACCEPT` with two P1 findings because the evidence
+commit was newer than the implementation source commit and its own CI result
+had not yet been recorded. GitHub Actions run `33895734089` subsequently passed
+all 78 tests on Ubuntu, macOS, and Windows at that exact evidence commit.
+
+The receipt model now names both immutable roles explicitly: `034ee45...` is
+the implementation source that produced the wheel and primary qualification;
+`c1dee28...` is the evidence commit that adds only qualification artifacts and
+the promoted wheel. The closure commit adds only this reconciliation record.
