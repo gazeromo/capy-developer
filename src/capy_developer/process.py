@@ -140,6 +140,41 @@ def _terminate_windows_job(job: int) -> None:
         raise ctypes.WinError(ctypes.get_last_error())
 
 
+def _wait_windows_job_empty(job: int, timeout: float = 5) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    class BASIC_ACCOUNTING(ctypes.Structure):
+        _fields_ = [
+            ("TotalUserTime", ctypes.c_longlong),
+            ("TotalKernelTime", ctypes.c_longlong),
+            ("ThisPeriodTotalUserTime", ctypes.c_longlong),
+            ("ThisPeriodTotalKernelTime", ctypes.c_longlong),
+            ("TotalPageFaultCount", wintypes.DWORD),
+            ("TotalProcesses", wintypes.DWORD),
+            ("ActiveProcesses", wintypes.DWORD),
+            ("TotalTerminatedProcesses", wintypes.DWORD),
+        ]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.QueryInformationJobObject.argtypes = [
+        wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD),
+    ]
+    kernel.QueryInformationJobObject.restype = wintypes.BOOL
+    deadline = time.monotonic() + timeout
+    while True:
+        accounting = BASIC_ACCOUNTING()
+        if not kernel.QueryInformationJobObject(
+            wintypes.HANDLE(job), 1, ctypes.byref(accounting), ctypes.sizeof(accounting), None,
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if accounting.ActiveProcesses == 0:
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Windows verifier process tree did not terminate")
+        time.sleep(0.01)
+
+
 def _close_windows_job(job: int) -> None:
     import ctypes
     from ctypes import wintypes
@@ -284,7 +319,11 @@ def run_process(
                     pass
     finally:
         if windows_job is not None:
-            _close_windows_job(windows_job)
+            try:
+                _terminate_windows_job(windows_job)
+                _wait_windows_job_empty(windows_job)
+            finally:
+                _close_windows_job(windows_job)
         elif os.name != "nt":
             try:
                 os.killpg(process.pid, signal.SIGTERM)

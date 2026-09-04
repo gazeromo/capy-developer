@@ -65,7 +65,11 @@ class VerificationTests(unittest.TestCase):
         session, workspace = self.start()
         payload = self.payload(session, workspace)
         first = self.core.verify_development(payload)
-        self.assertEqual((True, "PASSED", "VERIFIED"), (first["ok"], first["status"], first["classification"]))
+        self.assertEqual(
+            (True, "PASSED", "VERIFIED"),
+            (first["ok"], first["status"], first["classification"]),
+            json.dumps(first, indent=2),
+        )
         self.assertEqual(9, len(first["stages"]))
         self.assertTrue(all(stage["status"] == "PASSED" for stage in first["stages"]))
         self.assertEqual(2, first["candidate_archive"]["byte_identical_builds"])
