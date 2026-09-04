@@ -409,9 +409,13 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual("VERIFICATION_PATH_CONFLICT", result["error"]["code"])
         self.assertEqual("deterministic conflict", result["error"]["detail"])
 
-    def test_long_attempt_path_uses_short_disposable_child_temp(self):
+    def test_long_attempt_path_uses_platform_appropriate_child_temp(self):
         managed_root = self.root / ("configured-cache-" * 8)
         selected, cleanup = self.core.verifications._temporary_root(managed_root, "ver_1234567890abcdef")
+        if os.name != "posix":
+            self.assertEqual(managed_root / "t", selected)
+            self.assertIsNone(cleanup)
+            return
         self.assertEqual(selected, cleanup)
         self.assertEqual(self.config.verification_temporary_root, selected.parent)
         self.assertEqual("ver_1234567890abcdef", (selected / ".capy-verification-owner").read_text())
