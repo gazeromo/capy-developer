@@ -58,3 +58,27 @@ production state was involved.
 Cross-platform CI and independent reviews are recorded separately before
 terminal closure.
 
+## Review-driven repairs
+
+Fresh independent review exposed and closed bounded defects before acceptance:
+
+- MCP now publishes explicit existing-project selector fields, malformed CLI
+  invocations stay JSON, malformed MCP method shapes return JSON-RPC errors,
+  and failed-session replay preserves its causal error.
+- Git execution strips inherited Git configuration variables, disables hooks
+  such as `core.fsmonitor`, applies an explicit protocol allowlist, preserves
+  non-default ports and arbitrary SCP usernames, and rejects originless or
+  remote-helper identities.
+- Operation serialization uses kernel-owned byte-range locks on every platform;
+  failed Windows opens and lock attempts close their handles, and abrupt process
+  exit releases the lock without timestamp theft.
+- Legacy toolchain availability hashes the actual wheel member rather than
+  trusting its manifest claim.
+- Import validates local path safety but derives manifest, application, and
+  toolchain metadata from a synchronized detached snapshot of the canonical
+  remote default branch. Start reconciles that metadata again against the exact
+  fetched base before returning `READY`.
+
+The final immutable implementation candidate passed 32 tests on each of macOS,
+Ubuntu, and Windows in GitHub Actions run `33868308194`. Both independent gates
+accepted that exact commit with no P0-P2 findings.

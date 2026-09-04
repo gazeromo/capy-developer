@@ -1,0 +1,102 @@
+{
+  "schema": "capy.developer-foundation-receipt/v0",
+  "status": "accepted",
+  "repository": "gazeromo/capy-developer",
+  "source": {
+    "base_commit": "6dd8e0d1a73050fff80e5693b955418df84ce272",
+    "base_tree": "99ad643328278cdea4851f1a96f7fdc13e8554a6",
+    "accepted_commit": "6f0bf7b027b8c6036d8eee8fbeb733356755a917",
+    "accepted_tree": "df3997096c5dceaba4da7fd9aaa4fd30c3d9f835",
+    "branch": "codex/developer-foundation-v0"
+  },
+  "plan": {
+    "sha256": "06f2cd8db8f8d0beee82184bbc9236dfc06c5f91ced6320becde2203fa6cf17b"
+  },
+  "package": {
+    "filename": "capy_developer-0.1.0-py3-none-any.whl",
+    "sha256": "a57e2aa238297b143d56758d58d226c265cc79f264dfbf4e51e18d5ca1610301",
+    "size_bytes": 45954,
+    "reproducible_builds": 2,
+    "byte_identical": true,
+    "fresh_offline_install": "passed",
+    "installed_doctor": "passed"
+  },
+  "schemas": {
+    "doctor": "capy.developer-doctor/v0",
+    "error": "capy.developer-error/v0",
+    "project": "capy.project-result/v0",
+    "project_manifest": "capy.project/v0",
+    "project_search": "capy.projects-search-result/v0",
+    "development": "capy.development-result/v0",
+    "toolchain_lock": "capy.toolchain-lock/v0",
+    "sqlite": 1
+  },
+  "devkit": {
+    "repository": "gazeromo/capy-script-devkit",
+    "release_binding_commit": "0cf018faa02ade73ab0805aa0617c55ce36fa7b1",
+    "implementation_commit": "55fc109b5f494086c03560794e7be74d75f1d93f",
+    "contract": "capy.script/dev-v0",
+    "wheel_sha256": "165faba51b56b667b087228e1c556b1e2369d0e61bb469785ddff1bad9d6e2d0",
+    "authoring_bundle_sha256": "cb7e4073a99bf8596509af02f466f90b5792d1d8075dffab0f27bbb2df0679e8"
+  },
+  "fixtures": {
+    "fedex_commit": "de79fd1d0c08ab01f85b5d25a7a6d69a672c5b94",
+    "proforma_commit": "c21a308ec539898da8b6801ffc54845826bfd6cf"
+  },
+  "qualification": {
+    "source_tests": 32,
+    "local": "passed",
+    "local_acceptance_sha256": "6f165588238d586f7b5a7f5e28abe0684c0cbdd1502631cb9dffb1fef3654d71",
+    "cross_platform_run": 33868308194,
+    "macos": "passed",
+    "linux": "passed",
+    "windows": "passed",
+    "review_a": "accepted",
+    "review_b": "accepted",
+    "review_findings_p0_p1_p2": 0,
+    "cli_mcp_semantic_parity": "passed"
+  },
+  "journeys": {
+    "unrelated_directory": "passed",
+    "exact_existing_project": "passed",
+    "existing_retry": "passed",
+    "new_project": "passed",
+    "new_retry": "passed",
+    "restart_inspection": "passed",
+    "finish_idempotency": "passed",
+    "ambiguity_no_mutation": "passed",
+    "canonical_default_metadata": "passed",
+    "exact_base_revalidation": "passed"
+  },
+  "developer_ceremony": {
+    "selected_repository_paths": 0,
+    "git_initialization_actions": 0,
+    "branch_or_worktree_decisions": 0,
+    "devkit_version_decisions": 0,
+    "manual_template_copy_actions": 0
+  },
+  "boundary_changes": {
+    "imported_application_repositories": 0,
+    "capy_outcome_runtime": 0,
+    "production": 0,
+    "provider_secrets_accessed": 0,
+    "coding_agent_launches": 0,
+    "codex_specific_core_behavior": 0,
+    "cli_mcp_semantic_differences": 0
+  },
+  "remaining_blockers": [],
+  "non_claims": [
+    "automatic harness installation",
+    "remote MCP",
+    "remote repository provisioning",
+    "application verification or preview",
+    "release acceptance or production import",
+    "builder extraction",
+    "malicious untrusted-code safety",
+    "public multi-user service"
+  ],
+  "deviations": [
+    "Private GitHub HTTPS synchronization requires native Git credentials; provider provisioning is outside V0.",
+    "The final wheel used isolated PEP 517 builds because the host Python 3.14 environment lacked local setuptools for no-build-isolation mode."
+  ]
+}

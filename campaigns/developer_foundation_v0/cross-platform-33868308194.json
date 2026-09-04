@@ -1,0 +1,15 @@
+{
+  "schema": "capy.cross-platform-qualification/v0",
+  "status": "passed",
+  "repository": "gazeromo/capy-developer",
+  "commit": "6f0bf7b027b8c6036d8eee8fbeb733356755a917",
+  "run_id": 33868308194,
+  "run_url": "https://github.com/gazeromo/capy-developer/actions/runs/33868308194",
+  "python": "3.11",
+  "tests_per_platform": 32,
+  "platforms": {
+    "ubuntu-latest": "passed",
+    "macos-latest": "passed",
+    "windows-latest": "passed"
+  }
+}
