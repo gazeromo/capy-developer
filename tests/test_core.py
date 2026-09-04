@@ -99,9 +99,14 @@ class CoreTestCase(unittest.TestCase):
         self.assertEqual("IDEMPOTENCY_CONFLICT", caught.exception.code)
 
     def test_failed_start_replay_preserves_causal_failure(self):
-        checkout, remote = self.fixture("unreachable", "demo.unreachable")
-        self.core.import_project(str(checkout))
-        shutil.rmtree(remote)
+        checkout, _ = self.fixture("unreachable", "demo.unreachable")
+        imported = self.core.import_project(str(checkout))
+        missing = (self.root / "missing-remote.git").as_uri()
+        with self.core.db.connect() as db:
+            db.execute(
+                "UPDATE projects SET repository_url=? WHERE project_id=?",
+                (missing, imported["project"]["project_id"]),
+            )
         payload = {
             "idempotency_key": "failed-replay", "request": "Prepare it.",
             "existing": {"application_id": "demo.unreachable"},
