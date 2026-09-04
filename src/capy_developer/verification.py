@@ -21,6 +21,7 @@ from .toolchain import ResolvedToolchain, read_lock, sha256_file
 from .util import (
     APPLICATION_ID,
     HEX40,
+    SESSION_ID,
     exclusive_lock,
     lock_is_available,
     new_id,
@@ -179,7 +180,7 @@ class VerificationService:
         application_id = payload.get("application_id")
         candidate = payload.get("candidate_commit")
         key = payload.get("idempotency_key")
-        if not isinstance(session_id, str) or not session_id.startswith("ses_") or len(session_id) > 128:
+        if not isinstance(session_id, str) or SESSION_ID.fullmatch(session_id) is None:
             raise DeveloperError("SESSION_ID_INVALID", "session_id is invalid")
         if not isinstance(application_id, str) or APPLICATION_ID.fullmatch(application_id) is None:
             raise DeveloperError("APPLICATION_ID_INVALID", "application_id must be a dotted lowercase identifier")
@@ -323,7 +324,11 @@ class VerificationService:
         combined = combine_process_results(combined, import_check)
         if import_check.timed_out or import_check.exit_code != 0:
             self._record_process(verification_id, "toolchain_install", combined, False)
-            self._fail_remaining(verification_id, "toolchain_install", "TOOLCHAIN_INSTALL_FAILED")
+            self._fail_remaining(
+                verification_id,
+                "toolchain_install",
+                "STAGE_TIMEOUT" if import_check.timed_out else "TOOLCHAIN_INSTALL_FAILED",
+            )
             return
         self._record_process(verification_id, "toolchain_install", combined, True)
         app = test_checkout / application_relative

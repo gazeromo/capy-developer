@@ -6,6 +6,9 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from .errors import DeveloperError
+from .util import SESSION_ID, safe_resolve
+
 
 def _default_data_root() -> Path:
     if platform.system() == "Windows":
@@ -78,4 +81,7 @@ class Config:
         return self.cache_root / "verification-artifacts" / "sha256"
 
     def verification_lock(self, session_id: str) -> Path:
-        return self.data_root / "verification-locks" / f"{session_id}.lock"
+        if not isinstance(session_id, str) or SESSION_ID.fullmatch(session_id) is None:
+            raise DeveloperError("SESSION_ID_INVALID", "session_id is invalid")
+        root = self.data_root / "verification-locks"
+        return safe_resolve(root / f"{session_id}.lock", root=root)

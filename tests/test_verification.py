@@ -235,6 +235,21 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual("FAILED", result["stages"][1]["status"])
         self.assertTrue(all(item["status"] == "SKIPPED" for item in result["stages"][2:]))
 
+    def test_importability_timeout_is_causally_classified(self):
+        session, workspace = self.start()
+        calls = 0
+
+        def runner(*args, **kwargs):
+            nonlocal calls
+            current = calls
+            calls += 1
+            return ProcessResult(None if current == 2 else 0, "", "", 0, 0, 1, current == 2)
+
+        with mock.patch("capy_developer.verification.run_process", side_effect=runner):
+            result = self.core.verify_development(self.payload(session, workspace))
+        self.assertEqual("STAGE_TIMEOUT", result["classification"])
+        self.assertEqual("FAILED", result["stages"][0]["status"])
+
     def test_nonidentical_pack_bytes_are_rejected(self):
         session, workspace = self.start()
         calls = 0
@@ -309,6 +324,13 @@ class VerificationTests(unittest.TestCase):
             with self.assertRaises(DeveloperError) as caught:
                 self.core.finish_development(session["session_id"], "COMPLETED")
             self.assertEqual("VERIFICATION_BUSY", caught.exception.code)
+
+    def test_invalid_finish_session_id_cannot_escape_verification_lock_root(self):
+        escaped = self.root / "escaped.lock"
+        with self.assertRaises(DeveloperError) as caught:
+            self.core.finish_development("ses_../../../escaped", "COMPLETED")
+        self.assertEqual("SESSION_ID_INVALID", caught.exception.code)
+        self.assertFalse(escaped.exists())
 
     def test_abandoned_running_attempt_becomes_interrupted(self):
         session, workspace = self.start()
