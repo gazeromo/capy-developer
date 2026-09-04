@@ -238,6 +238,19 @@ def _drain(stream, capture: _BoundedCapture) -> None:
         pass
 
 
+def _terminate_posix_group(process_id: int, grace: float = 0.5) -> None:
+    try:
+        os.killpg(process_id, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        return
+    if grace:
+        time.sleep(grace)
+    try:
+        os.killpg(process_id, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
 def _bounded(payload: bytes, limit: int = OUTPUT_LIMIT) -> tuple[str, int]:
     if len(payload) <= limit:
         return payload.decode("utf-8", "replace"), 0
@@ -252,7 +265,7 @@ def _bounded(payload: bytes, limit: int = OUTPUT_LIMIT) -> tuple[str, int]:
 
 
 def run_process(
-    arguments: list[str], *, cwd: Path, environment: dict[str, str], timeout: float,
+    arguments: list[str], *, cwd: Path | None, environment: dict[str, str], timeout: float,
 ) -> ProcessResult:
     started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     started = time.monotonic()
@@ -301,18 +314,12 @@ def run_process(
             if os.name == "nt":
                 _terminate_windows_job(windows_job)
             else:
-                try:
-                    os.killpg(process.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
+                _terminate_posix_group(process.pid)
             try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 if os.name != "nt":
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+                    _terminate_posix_group(process.pid, grace=0)
                 try:
                     process.wait(timeout=1)
                 except subprocess.TimeoutExpired:
@@ -325,10 +332,7 @@ def run_process(
             finally:
                 _close_windows_job(windows_job)
         elif os.name != "nt":
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+            _terminate_posix_group(process.pid)
         for reader in readers:
             reader.join(timeout=1)
         for stream in (process.stdout, process.stderr):

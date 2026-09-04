@@ -69,6 +69,7 @@ class VerificationService:
             busy_code="VERIFICATION_BUSY",
             busy_detail="another verification is active for this development session",
         ):
+            self.reconcile(session_id, lock_held=True)
             replay = self._replay(normalized, request_digest, lock_held=True)
             if replay is not None:
                 return replay
@@ -168,9 +169,14 @@ class VerificationService:
                         except DeveloperError as exc:
                             cleanup_errors.append(f"{exc.code}: {exc.detail}")
                 if attempt_root.exists():
-                    shutil.rmtree(attempt_root, ignore_errors=True)
-                if external_temp is not None:
-                    self._cleanup_external_temp(verification_id, external_temp)
+                    try:
+                        shutil.rmtree(attempt_root)
+                    except OSError as exc:
+                        cleanup_errors.append(f"ATTEMPT_CLEANUP_FAILED: {type(exc).__name__}")
+                if attempt_root.exists():
+                    cleanup_errors.append("ATTEMPT_CLEANUP_FAILED: path remains")
+                if external_temp is not None and not self._cleanup_external_temp(verification_id, external_temp):
+                    cleanup_errors.append("TEMP_CLEANUP_FAILED: owned path remains")
                 if allocated and cleanup_errors:
                     self._record_cleanup_failure(verification_id, "; ".join(cleanup_errors))
             if not allocated:
@@ -338,6 +344,7 @@ class VerificationService:
             return
         self._record_process(verification_id, "toolchain_install", combined, True)
         app = test_checkout / application_relative
+        attempt = self._attempt(verification_id)
         for stage, command, classification in (
             ("check", "check", "DEVKIT_CHECK_FAILED"),
             ("test", "test", "APPLICATION_TESTS_FAILED"),
@@ -349,15 +356,27 @@ class VerificationService:
                 environment=environment,
                 timeout=TIMEOUTS[stage],
             )
-            passed = not result.timed_out and result.exit_code == 0
-            self._record_process(verification_id, stage, result, passed)
+            process_passed = not result.timed_out and result.exit_code == 0
+            candidate_unchanged = self._candidate_unchanged(
+                test_checkout, attempt["candidate_commit"], attempt["candidate_tree"]
+            )
+            passed = process_passed and candidate_unchanged
+            self._record_process(
+                verification_id, stage, result, passed, facts={"candidate_unchanged": candidate_unchanged}
+            )
             if not passed:
-                self._fail_remaining(verification_id, stage, "STAGE_TIMEOUT" if result.timed_out else classification)
+                failure = (
+                    "STAGE_TIMEOUT" if result.timed_out else
+                    "SOURCE_MUTATED_DURING_VERIFICATION" if not candidate_unchanged else classification
+                )
+                self._fail_remaining(verification_id, stage, failure)
                 return
         started = utc_now()
         tick = time.monotonic()
         status = run_git(["-C", str(test_checkout), "status", "--porcelain=v1", "--untracked-files=all"])
-        clean = not status
+        clean = self._candidate_unchanged(
+            test_checkout, attempt["candidate_commit"], attempt["candidate_tree"]
+        )
         self._record_stage(
             verification_id,
             "source_mutation_check",
@@ -472,14 +491,16 @@ class VerificationService:
             return external, external
         return managed, None
 
-    def _cleanup_external_temp(self, verification_id: str, path: Path) -> None:
+    def _cleanup_external_temp(self, verification_id: str, path: Path) -> bool:
         root = self.config.verification_temporary_root.resolve()
+        if not path.exists() and not path.is_symlink():
+            return True
         if path.is_symlink():
-            return
+            return False
         try:
             resolved = path.resolve(strict=True)
         except OSError:
-            return
+            return not path.exists()
         marker = resolved / ".capy-verification-owner"
         if (
             resolved.parent != root
@@ -487,13 +508,23 @@ class VerificationService:
             or marker.is_symlink()
             or not marker.is_file()
         ):
-            return
+            return False
         try:
             owner = marker.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
-            return
+            return False
         if owner == verification_id:
             shutil.rmtree(resolved, ignore_errors=True)
+        return not resolved.exists()
+
+    @staticmethod
+    def _candidate_unchanged(checkout: Path, commit: str, tree: str) -> bool:
+        return (
+            run_git(["-C", str(checkout), "rev-parse", "HEAD"], check=False) == commit
+            and run_git(["-C", str(checkout), "rev-parse", "HEAD^{tree}"], check=False) == tree
+            and not run_git(["-C", str(checkout), "symbolic-ref", "--short", "-q", "HEAD"], check=False)
+            and not run_git(["-C", str(checkout), "status", "--porcelain=v1", "--untracked-files=all"])
+        )
 
     def _environment(self, home: Path, temporary: Path) -> dict[str, str]:
         home.mkdir(parents=True, exist_ok=True)

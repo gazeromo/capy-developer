@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 from .errors import DeveloperError
+from .process import run_process
 from .util import HEX40, normalize_repository
 
 
@@ -28,13 +28,16 @@ def run_git(arguments: list[str], *, cwd: Path | None = None, check: bool = True
         "-c", "protocol.ssh.allow=always",
         "-c", "protocol.git.allow=always",
     ]
-    completed = subprocess.run(
-        ["git", *safe_configuration, *arguments], cwd=cwd, env=environment, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False,
+    completed = run_process(
+        ["git", *safe_configuration, *arguments], cwd=cwd, environment=environment, timeout=60,
     )
-    if check and completed.returncode != 0:
+    if completed.timed_out:
+        raise DeveloperError("GIT_TIMEOUT", "Git command exceeded its bounded execution time")
+    if completed.stdout_truncated_bytes or completed.stderr_truncated_bytes:
+        raise DeveloperError("GIT_OUTPUT_LIMIT", "Git command exceeded its bounded output allowance")
+    if check and completed.exit_code != 0:
         detail = completed.stderr.strip().splitlines()[-1] if completed.stderr.strip() else "Git command failed"
-        raise DeveloperError("GIT_FAILED", detail, data={"git_exit": completed.returncode})
+        raise DeveloperError("GIT_FAILED", detail, data={"git_exit": completed.exit_code})
     return completed.stdout.strip()
 
 
@@ -157,11 +160,14 @@ def add_detached_worktree(repository_worktree: Path, destination: Path, commit: 
 def remove_detached_worktree(repository_worktree: Path, destination: Path) -> None:
     try:
         run_git(["-C", str(repository_worktree), "worktree", "remove", "--force", str(destination)])
-    except DeveloperError:
-        if destination.is_symlink():
-            destination.unlink(missing_ok=True)
-        elif destination.exists():
-            shutil.rmtree(destination)
+    except DeveloperError as original:
+        try:
+            if destination.is_symlink():
+                destination.unlink(missing_ok=True)
+            elif destination.exists():
+                shutil.rmtree(destination)
+        except OSError as exc:
+            raise DeveloperError("GIT_WORKTREE_CLEANUP_FAILED", type(exc).__name__) from original
     run_git(["-C", str(repository_worktree), "worktree", "prune", "--expire", "now"], check=False)
     registrations = run_git(["-C", str(repository_worktree), "worktree", "list", "--porcelain"])
     registered = {
@@ -169,5 +175,6 @@ def remove_detached_worktree(repository_worktree: Path, destination: Path) -> No
         for line in registrations.splitlines()
         if line.startswith("worktree ")
     }
-    if str(destination.resolve()) in registered:
+    target = os.path.normcase(os.path.abspath(destination))
+    if target in {os.path.normcase(os.path.abspath(item)) for item in registered}:
         raise DeveloperError("GIT_WORKTREE_CLEANUP_FAILED", "detached verification worktree registration remains")

@@ -106,7 +106,17 @@ def read_lock(checkout: Path) -> ToolchainLock:
     if selected is None:
         return ToolchainLock(None, None, None, None, None, None, None, None, "UNBOUND", "no DevKit lock declared")
     try:
-        data = tomllib.loads(selected.read_text(encoding="utf-8"))
+        resolved = selected.resolve(strict=True)
+        resolved.relative_to(checkout.resolve(strict=True))
+        if selected.is_symlink() or not resolved.is_file():
+            raise ValueError("toolchain lock must be a regular candidate file")
+    except (OSError, ValueError) as exc:
+        return ToolchainLock(
+            None, None, None, None, None, None, None, str(selected), "INVALID",
+            "toolchain lock escapes the candidate or is not a regular file",
+        )
+    try:
+        data = tomllib.loads(resolved.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
         return ToolchainLock(None, None, None, None, None, None, None, str(selected), "INVALID", str(exc))
     if selected.name == "DEVKIT.lock":

@@ -156,6 +156,20 @@ class VerificationTests(unittest.TestCase):
         with self.core.db.connect() as db:
             self.assertEqual(0, db.execute("SELECT count(*) FROM verification_attempts").fetchone()[0])
 
+    def test_toolchain_lock_symlink_is_rejected_before_attempt(self):
+        session, workspace = self.start()
+        outside = self.root / "outside.lock"
+        outside.write_bytes((workspace / "capy.lock").read_bytes())
+        (workspace / "capy.lock").unlink()
+        try:
+            (workspace / "capy.lock").symlink_to(outside)
+        except OSError as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        self.commit(workspace, "symlink lock")
+        with self.assertRaises(DeveloperError) as caught:
+            self.core.verify_development(self.payload(session, workspace))
+        self.assertEqual("TOOLCHAIN_LOCK_INVALID", caught.exception.code)
+
     def test_source_mutation_is_causal_failure(self):
         session, workspace = self.start()
         (workspace / "tests" / "test_main.py").write_text(
@@ -169,6 +183,19 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual("SOURCE_MUTATED_DURING_VERIFICATION", result["classification"])
         self.assertEqual("FAILED", result["status"])
         self.assertIsNone(result["candidate_archive"])
+
+    def test_test_cannot_reset_to_benign_parent_before_conformance(self):
+        session, workspace = self.start()
+        (workspace / "tests" / "test_reset.py").write_text(
+            "import subprocess\nimport unittest\n"
+            "class Reset(unittest.TestCase):\n"
+            " def test_reset(self): subprocess.run(['git','reset','--hard','HEAD^'], check=True)\n",
+            encoding="utf-8",
+        )
+        self.commit(workspace, "resetting candidate")
+        result = self.core.verify_development(self.payload(session, workspace))
+        self.assertEqual("SOURCE_MUTATED_DURING_VERIFICATION", result["classification"])
+        self.assertEqual("SKIPPED", next(item for item in result["stages"] if item["name"] == "conform")["status"])
 
     def test_verified_state_becomes_stale_after_edit(self):
         session, workspace = self.start()
@@ -359,6 +386,30 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual("INTERRUPTED", inspected["verification"]["latest"]["status"])
         self.assertEqual("VERIFIER_PROCESS_INTERRUPTED", inspected["verification"]["latest"]["classification"])
         self.assertFalse(attempt_root.exists())
+
+    def test_new_key_reconciles_abandoned_attempt_before_allocation(self):
+        session, workspace = self.start()
+        payload = self.payload(session, workspace, "new-key")
+        now = "2026-09-04T00:00:00Z"
+        with self.core.db.connect() as db:
+            db.execute(
+                """INSERT INTO verification_attempts(
+                verification_id,session_id,idempotency_key,request_digest,application_id,
+                candidate_commit,candidate_tree,base_commit,development_branch,lock_digest,
+                contract,release_binding_commit,authoring_bundle_sha256,wheel_sha256,status,
+                started_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'RUNNING',?,?)""",
+                ("ver_old_key", session["session_id"], "old-key", "digest", "demo.verify_fixture",
+                 payload["candidate_commit"], run_git(["rev-parse", "HEAD^{tree}"], cwd=workspace),
+                 session["exact_base_commit"], session["development_branch"], "4" * 64,
+                 "capy.script/dev-v0", "1" * 40, "2" * 64, "3" * 64, now, now),
+            )
+        current = self.core.verify_development(payload)
+        self.assertEqual("PASSED", current["status"])
+        with self.core.db.connect() as db:
+            old = db.execute(
+                "SELECT status,classification FROM verification_attempts WHERE verification_id='ver_old_key'"
+            ).fetchone()
+        self.assertEqual(("INTERRUPTED", "VERIFIER_PROCESS_INTERRUPTED"), tuple(old))
 
     def test_finish_reconciles_abandoned_attempt_while_holding_session_lock(self):
         session, workspace = self.start()
