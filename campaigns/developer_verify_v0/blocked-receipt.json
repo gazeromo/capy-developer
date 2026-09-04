@@ -1,0 +1,45 @@
+{
+  "schema": "capy.developer-verify-blocked-receipt/v0",
+  "status": "blocked",
+  "repository": "gazeromo/capy-developer",
+  "source": {
+    "base_commit": "124bf634ec023f064ebd7f051d049de65ff3228f",
+    "base_tree": "fd119733c5219c0d7c50544eeaad351f66abc44a",
+    "latest_candidate_commit": "e80b464772edbdde72e3fd47b80c3eb854bc66ac",
+    "latest_candidate_tree": "d4167bae520901d8053a51e256de33f0f5c1090c",
+    "branch": "codex/developer-verify-v0",
+    "merged_main": null
+  },
+  "plan_sha256": "461b3a89742b8b94160d7ec88db19cdec3ede34e9bc937f2b4f23f075f51c534",
+  "schemas": {"sqlite": 2, "verification_result": "capy.development-verification-result/v0"},
+  "interfaces": {"cli": "capy-dev verify --json", "mcp": "capy_development_verify"},
+  "devkit": {
+    "repository": "gazeromo/capy-script-devkit",
+    "release_binding_commit": "0cf018faa02ade73ab0805aa0617c55ce36fa7b1",
+    "implementation_commit": "55fc109b5f494086c03560794e7be74d75f1d93f",
+    "contract": "capy.script/dev-v0",
+    "wheel_sha256": "165faba51b56b667b087228e1c556b1e2369d0e61bb469785ddff1bad9d6e2d0",
+    "authoring_bundle_sha256": "cb7e4073a99bf8596509af02f466f90b5792d1d8075dffab0f27bbb2df0679e8"
+  },
+  "local_tests": {"count": 71, "status": "passed"},
+  "cross_platform": {
+    "run_id": 33878099426,
+    "ubuntu": "passed",
+    "macos": "passed",
+    "windows": "blocked_at_devkit_resource_only_conformance",
+    "tests_per_platform": 71
+  },
+  "journeys": {
+    "a": {"status": "passed", "candidate_commit": "0ee905a52033b1815fffa8aecc1b384ece6b3899", "candidate_tree": "b3b99a13941e1954c97bfd09a2e5b4765c5dc0a3", "verification_id": "ver_1eea1d1645ef4962a2f9f9dbadef363a"},
+    "b": {"status": "passed", "candidate_commit": "4474de430c3afa5a98e195678e22cdb12a5e9f09", "candidate_tree": "b3b99a13941e1954c97bfd09a2e5b4765c5dc0a3", "verification_id": "ver_638e12a4cc084e8f807dc92f8a970582"},
+    "candidate_archive_sha256": "4710bed6cf346e1f38cec837ada60ad2ec7555ab9364a80c72b52d9480a2acf7",
+    "candidate_archive_size_bytes": 4651
+  },
+  "terminal_blocker": {
+    "gate": "windows_resource_only_conformance",
+    "error": "AttributeError: module 'socket' has no attribute 'AF_UNIX'",
+    "plan_stop_condition": "the current DevKit cannot run the resource-only acceptance app on a target OS"
+  },
+  "withheld": ["acceptance", "0.2.0 wheel promotion", "main merge", "release", "deployment"],
+  "remaining_blockers": ["An owner-authorized compatible DevKit release or changed platform requirement is required before Verify V0 acceptance can resume."]
+}

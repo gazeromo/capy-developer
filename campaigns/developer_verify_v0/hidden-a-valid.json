@@ -1,0 +1,12 @@
+{
+  "schema": "capy.script-fixture/dev-v0",
+  "request": {},
+  "resources": [
+    {
+      "slot": "csv",
+      "filename": "hidden.csv",
+      "source": "hidden-a-valid.csv"
+    }
+  ],
+  "connections": {}
+}

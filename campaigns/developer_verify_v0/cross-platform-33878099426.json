@@ -1,0 +1,21 @@
+{
+  "schema": "capy.cross-platform-qualification/v0",
+  "status": "blocked",
+  "repository": "gazeromo/capy-developer",
+  "commit": "e80b464772edbdde72e3fd47b80c3eb854bc66ac",
+  "run_id": 33878099426,
+  "run_url": "https://github.com/gazeromo/capy-developer/actions/runs/33878099426",
+  "python": "3.11",
+  "tests_per_platform": 71,
+  "platforms": {
+    "ubuntu-latest": "passed",
+    "macos-latest": "passed",
+    "windows-latest": "blocked"
+  },
+  "windows": {
+    "passing_tests": 65,
+    "failed_expectations": 6,
+    "root_cause": "The exact accepted DevKit's resource-only conform command raises AttributeError because socket.AF_UNIX is unavailable.",
+    "devkit_modified": false
+  }
+}

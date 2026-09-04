@@ -1,0 +1,30 @@
+{
+  "schema": "capy.developer-verify-journey/v0",
+  "journey": "B",
+  "adapter": "json-cli",
+  "status": "passed_before_terminal_platform_gate",
+  "project_id": "prj_ad04dda43471485f9cc11589299de715",
+  "session_id": "ses_4c91ed4ed1254c7987c1ab421da32a8f",
+  "application_id": "com.capy.csv_price_average",
+  "base": {
+    "commit": "f456de2abd6746c9963e26d1af225272ffbcdfea",
+    "tree": "0f4b498d6eecf55a5dddbf86cd241dfde24db371",
+    "verification_id": "ver_b0baa619f2e7469ba3bc8e222019e944",
+    "result": "FAILED",
+    "classification": "CONFORMANCE_FAILED"
+  },
+  "repair": {
+    "description": "Changed only the deterministic fixture expectation from 999.99 to 0.2.",
+    "commit": "4474de430c3afa5a98e195678e22cdb12a5e9f09",
+    "tree": "b3b99a13941e1954c97bfd09a2e5b4765c5dc0a3"
+  },
+  "passed_attempt": {
+    "verification_id": "ver_638e12a4cc084e8f807dc92f8a970582",
+    "classification": "VERIFIED",
+    "stages_passed": 9,
+    "archive_sha256": "4710bed6cf346e1f38cec837ada60ad2ec7555ab9364a80c72b52d9480a2acf7",
+    "archive_size_bytes": 4651
+  },
+  "finish": {"status": "COMPLETED", "dirty": false},
+  "developer_ceremony": {"repository_path_choices": 0, "git_choices": 0, "devkit_choices": 0}
+}
