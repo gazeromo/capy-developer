@@ -1,0 +1,116 @@
+{
+  "schema": "capy.developer-release-candidate-qualification/v0",
+  "qualified_at": "2026-09-04T19:09:57Z",
+  "repository": "gazeromo/capy-developer",
+  "branch": "codex/developer-release-candidate-v0",
+  "base_commit": "e684fd601fabe8b072d7a309be44b71abe8b5d53",
+  "base_tree": "6e20b4a15e61b59c14058fa7a786e34d8ff97670",
+  "implementation_commit": "a98b6d54eb5f73b58dffc2b4249f419cd7823113",
+  "implementation_tree": "f6e275033bd1606f6aef5599188eb8928dfdac31",
+  "implementation_remote_head": "a98b6d54eb5f73b58dffc2b4249f419cd7823113",
+  "source_tests": {
+    "local": "96 passed",
+    "duration_seconds": 164.059,
+    "cross_platform_run_id": 33908132153,
+    "cross_platform_run_url": "https://github.com/gazeromo/capy-developer/actions/runs/33908132153",
+    "ubuntu": "96 passed",
+    "macos": "96 passed",
+    "windows": "96 passed"
+  },
+  "journey_a": {
+    "transport": "installed-wheel MCP stdio from outside the project",
+    "session_id": "ses_cb977195d53b4ab08242e641be5b5ee6",
+    "project_id": "prj_40e6ab3fe7894aff9eedf58aae877bdb",
+    "verification_id": "ver_210c473e9a704525b7f98a01b3832c97",
+    "release_candidate_id": "rc_1d9048c0ad8793686bb9351cead8f762",
+    "candidate_commit": "4ef168901cf85bdc7da5128c2a08505d7c1746e3",
+    "candidate_tree": "b24b5b147ba1da8f42a037e3d04230700ba43ee4",
+    "application_archive_sha256": "5a6d989e5b44b8b531ecfdadef3d29122cc37829d993c71fbe037bcb3b8546ce",
+    "verification_receipt_sha256": "14912c18799296d421350fb68a71ac5e213af429c31551cc92f55a2bef628025",
+    "manifest_sha256": "53cebf69c3a7b167e13d7eb7ff5dfc5f690ca85d46766c3cb78b0cb7f472aeac",
+    "identity_sha256": "1d9048c0ad8793686bb9351cead8f762c41a1a1520f6b6a604884a10b1f3d465",
+    "bundle_sha256": "ac5789e6c885e20254081d99b4e561017b5960199a6d4658aba10d6dac51338a",
+    "bundle_size_bytes": 33934,
+    "status": "passed, replayed exactly, completed, restarted, and inspected"
+  },
+  "journey_b": {
+    "transport": "JSON CLI",
+    "session_id": "ses_9747e41989b140838568da67d340c6b1",
+    "failed_verification_id": "ver_a63a19cc97b341deb36a6b032cf6a619",
+    "failed_classification": "APPLICATION_TESTS_FAILED",
+    "failed_candidate_denial": "VERIFICATION_NOT_PASSED",
+    "failed_candidate_rows": 0,
+    "failed_candidate_files": 0,
+    "repaired_verification_id": "ver_cd88af3914fb4697aa120c20349aac69",
+    "repaired_commit": "3e5af768fcd299709361111d8b4c3096fa6e88b2",
+    "release_candidate_id": "rc_79d1fb4286a033285095e66e917f89ad",
+    "bundle_sha256": "77ab9dcd9f9562c268ca78383167c4df707715bd3f1b29d3973f626ca7c1ad34",
+    "status": "failed causally, repaired narrowly, passed, replayed, and completed"
+  },
+  "candidate_members": [
+    "RELEASE-CANDIDATE.json",
+    "application/application.zip",
+    "evidence/verification.json",
+    "toolchain/authoring-bundle.zip"
+  ],
+  "independent_oracle": {
+    "valid": "accepted from copied bytes only",
+    "tamper_cases": 26,
+    "tamper_rejected": 26,
+    "unexpected_cases": 0
+  },
+  "independent_reviews": {
+    "identity_format_trust_boundary": "ACCEPT; no actionable P0-P3 findings",
+    "persistence_recovery_cleanup_adapters": "ACCEPT; no actionable P0-P3 findings"
+  },
+  "package": {
+    "version": "0.3.0",
+    "filename": "capy_developer-0.3.0-py3-none-any.whl",
+    "sha256": "e69eb720a214d6cf1e960e19a0207ada5695664374412f0ec61380d6fb2e3a3c",
+    "size_bytes": 97221,
+    "clean_snapshot_builds": 2,
+    "byte_identical": true,
+    "fresh_offline_install": "passed with --no-index and --no-deps",
+    "installed_doctor_cli_mcp_smoke": "passed"
+  },
+  "devkit": {
+    "current_release_binding_commit": "8c4fec7f814a62ded441786b8eba28af14d1aa2d",
+    "current_source_commit": "e4462973d94584a75a1596f1b06a425a8da7f20d",
+    "current_authoring_bundle_sha256": "dc2c27611d12ecb12e1a929252a51e177537d8f0e4fba86de5ed93edae886d5c",
+    "current_wheel_sha256": "46f0b7865491054991b855d3bf709a445b7cc730077aaca2059cc095c685b30d",
+    "historical_release_binding_commit": "0cf018faa02ade73ab0805aa0617c55ce36fa7b1",
+    "historical_source_commit": "55fc109b5f494086c03560794e7be74d75f1d93f",
+    "historical_authoring_bundle_sha256": "cb7e4073a99bf8596509af02f466f90b5792d1d8075dffab0f27bbb2df0679e8",
+    "historical_wheel_sha256": "165faba51b56b667b087228e1c556b1e2369d0e61bb469785ddff1bad9d6e2d0",
+    "historical_exact_resolution": "passed"
+  },
+  "boundary_changes": {
+    "application_repositories": 0,
+    "runtime": 0,
+    "production": 0,
+    "provider_calls": 0,
+    "provider_secrets_accessed": 0,
+    "publication_or_deployment": 0
+  },
+  "explicit_non_claims": {
+    "application_business_correctness_beyond_verify_v0": "not proved",
+    "independent_acceptance": "required; not performed",
+    "secret_free_source": "not proved",
+    "safe_external_effects": "not proved",
+    "runtime_interaction_contract_correctness": "not proved",
+    "state_migration_safety": "not assessed",
+    "rollback_safety": "not assessed",
+    "publisher_authenticity_or_signatures": "not proved; signature not present",
+    "semantic_versioning": "not proved",
+    "runtime_import_compatibility": "not proved",
+    "application_installation": "not performed",
+    "team_person_authorization": "not proved",
+    "publication": "not performed",
+    "deployment": "not performed",
+    "remote_transfer_protocol": "not provided or proved",
+    "public_distribution": "not performed",
+    "malicious_code_safety": "not proved",
+    "builder_extraction": "not performed"
+  },
+  "evidence_commit_binding": "recorded by the subsequent closure receipt to avoid self-referential Git identity"
+}

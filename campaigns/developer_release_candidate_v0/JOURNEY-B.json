@@ -1,0 +1,18 @@
+{
+  "schema": "capy.developer-release-candidate-journey/v0",
+  "journey": "B",
+  "status": "passed",
+  "session_id": "ses_9747e41989b140838568da67d340c6b1",
+  "failed_verification_id": "ver_a63a19cc97b341deb36a6b032cf6a619",
+  "failed_classification": "APPLICATION_TESTS_FAILED",
+  "failed_candidate_denial": "VERIFICATION_NOT_PASSED",
+  "failed_candidate_rows": 0,
+  "failed_candidate_files": 0,
+  "repaired_verification_id": "ver_cd88af3914fb4697aa120c20349aac69",
+  "repaired_commit": "3e5af768fcd299709361111d8b4c3096fa6e88b2",
+  "release_candidate_id": "rc_79d1fb4286a033285095e66e917f89ad",
+  "bundle_sha256": "77ab9dcd9f9562c268ca78383167c4df707715bd3f1b29d3973f626ca7c1ad34",
+  "inspect_exact": true,
+  "post_completion_replay_exact": true,
+  "session_completed": true
+}

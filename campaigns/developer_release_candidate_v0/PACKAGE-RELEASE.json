@@ -1,0 +1,35 @@
+{
+  "schema": "capy.developer-release-candidate-package/v0",
+  "status": "qualified",
+    "source_commit": "a98b6d54eb5f73b58dffc2b4249f419cd7823113",
+    "source_tree": "f6e275033bd1606f6aef5599188eb8928dfdac31",
+  "version": "0.3.0",
+  "filename": "capy_developer-0.3.0-py3-none-any.whl",
+    "sha256": "e69eb720a214d6cf1e960e19a0207ada5695664374412f0ec61380d6fb2e3a3c",
+    "size_bytes": 97221,
+  "clean_snapshot_builds": 2,
+  "byte_identical": true,
+    "source_date_epoch": 1788547887,
+  "build_path": "isolated PEP 517 through uv with Python 3.12",
+  "fresh_offline_install": {
+        "python": "3.13.2",
+    "no_index": true,
+    "no_dependencies": true,
+    "doctor": "passed",
+    "database_schema": 3,
+    "installed_cli_candidate_smoke": "passed",
+    "installed_mcp_tools_list": "passed",
+    "installed_mcp_candidate_tools": [
+      "capy_release_candidate_create",
+      "capy_release_candidate_inspect"
+    ],
+        "verification_id": "ver_347f6220534e4bccbdeec8ccb1a45632",
+        "release_candidate_id": "rc_419b4feeaecb52c06b5126a0a85a057d",
+        "bundle_sha256": "2de82d929523e06de56ca02622c7bdce89f85b9cfa8d0368144a0cd26ef9e16e"
+  },
+  "deviations": [
+        "The host Python installations lacked an importable local setuptools backend, so both clean-snapshot builds used the previously accepted isolated PEP 517 path.",
+        "The first installed smoke used a verification temporary path that exceeded the locked DevKit limit; one bounded retry used a short test-owned temporary root and changed no source or wheel bytes."
+    ],
+    "published_or_deployed": false
+}

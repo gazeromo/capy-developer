@@ -1,0 +1,9 @@
+{
+  "schema": "capy.development-release-candidate-oracle/v0",
+  "status": "accepted",
+    "release_candidate_id": "rc_1d9048c0ad8793686bb9351cead8f762",
+    "identity_sha256": "1d9048c0ad8793686bb9351cead8f762c41a1a1520f6b6a604884a10b1f3d465",
+    "manifest_sha256": "53cebf69c3a7b167e13d7eb7ff5dfc5f690ca85d46766c3cb78b0cb7f472aeac",
+    "bundle_sha256": "ac5789e6c885e20254081d99b4e561017b5960199a6d4658aba10d6dac51338a",
+    "bundle_size_bytes": 33934
+}
