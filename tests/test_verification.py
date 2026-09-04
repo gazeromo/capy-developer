@@ -272,6 +272,17 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual("VERIFICATION_PATH_CONFLICT", result["error"]["code"])
         self.assertEqual("deterministic conflict", result["error"]["detail"])
 
+    def test_long_windows_attempt_path_uses_short_disposable_child_temp(self):
+        managed_root = self.root / ("configured-cache-" * 8)
+        external = self.root / "cv-short"
+        with mock.patch("capy_developer.verification.os.name", "nt"), mock.patch.object(
+            self.core.verifications, "_external_temp_path", return_value=external
+        ):
+            selected, cleanup = self.core.verifications._temporary_root(managed_root, "ver_1234567890abcdef")
+        self.assertEqual(external, selected)
+        self.assertEqual(external, cleanup)
+        self.assertTrue(external.is_dir())
+
     def test_live_session_lock_returns_busy_and_blocks_finish(self):
         session, workspace = self.start()
         lock = self.config.verification_lock(session["session_id"])

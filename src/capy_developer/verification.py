@@ -440,7 +440,7 @@ class VerificationService:
         # The accepted DevKit's connection simulator uses AF_UNIX. macOS caps
         # socket paths at roughly 104 bytes, so a long configured cache root
         # needs a short, disposable OS-temp path for the child process only.
-        if os.name == "posix" and len(os.fsencode(str(managed))) + 48 >= 104:
+        if os.name in {"posix", "nt"} and len(os.fsencode(str(managed))) + 48 >= 104:
             external = self._external_temp_path(verification_id)
             if external.is_symlink():
                 raise DeveloperError("VERIFICATION_PATH_CONFLICT", "disposable temp path may not be a symlink")
@@ -450,6 +450,9 @@ class VerificationService:
 
     @staticmethod
     def _external_temp_path(verification_id: str) -> Path:
+        # The system temp directory is materially shorter than a configured
+        # Capy cache root on Windows, while /tmp is the shortest stable choice
+        # on Unix. The child-only directory is collision-checked and removed.
         short_root = Path("/tmp") if Path("/tmp").is_dir() else Path(tempfile.gettempdir())
         return short_root / f"cv-{verification_id.removeprefix('ver_')[:12]}"
 
