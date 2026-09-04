@@ -308,6 +308,31 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual("FAILED", result["status"])
         self.assertIsNone(result["candidate_archive"])
 
+    def test_pack_cannot_commit_mutation_and_leave_snapshot_clean(self):
+        session, workspace = self.start()
+        calls = 0
+
+        def runner(arguments, **kwargs):
+            nonlocal calls
+            current = calls
+            calls += 1
+            if current == 6:
+                checkout = Path(kwargs["cwd"])
+                (checkout / "README.md").write_text("mutated during packaging\n", encoding="utf-8")
+                run_git(["config", "user.name", "Fixture"], cwd=checkout)
+                run_git(["config", "user.email", "fixture@localhost"], cwd=checkout)
+                run_git(["add", "README.md"], cwd=checkout)
+                run_git(["commit", "-m", "hide packaging mutation"], cwd=checkout)
+                Path(arguments[-1]).write_bytes(b"plausible archive")
+            return ProcessResult(0, "", "", 0, 0, 1, False)
+
+        with mock.patch("capy_developer.verification.run_process", side_effect=runner):
+            result = self.core.verify_development(self.payload(session, workspace))
+        self.assertEqual("SOURCE_MUTATED_DURING_VERIFICATION", result["classification"])
+        self.assertEqual("FAILED", result["status"])
+        self.assertEqual("FAILED", next(item for item in result["stages"] if item["name"] == "pack_a")["status"])
+        self.assertIsNone(result["candidate_archive"])
+
     def test_separate_sessions_can_verify_concurrently(self):
         first, first_workspace = self.start("parallel-a")
         second, second_workspace = self.start("parallel-b")

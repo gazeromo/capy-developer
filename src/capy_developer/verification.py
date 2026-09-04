@@ -404,11 +404,28 @@ class VerificationService:
                 environment=environment,
                 timeout=TIMEOUTS[stage],
             )
-            clean = not run_git(["-C", str(checkout), "status", "--porcelain=v1", "--untracked-files=all"])
-            passed = not result.timed_out and result.exit_code == 0 and archive.is_file() and clean
-            self._record_process(verification_id, stage, result, passed, facts={"checkout_clean": clean})
+            candidate_unchanged = self._candidate_unchanged(
+                checkout, attempt["candidate_commit"], attempt["candidate_tree"]
+            )
+            passed = (
+                not result.timed_out
+                and result.exit_code == 0
+                and archive.is_file()
+                and candidate_unchanged
+            )
+            self._record_process(
+                verification_id,
+                stage,
+                result,
+                passed,
+                facts={"candidate_unchanged": candidate_unchanged},
+            )
             if not passed:
-                classification = "STAGE_TIMEOUT" if result.timed_out else "PACKAGE_BUILD_FAILED"
+                classification = (
+                    "STAGE_TIMEOUT" if result.timed_out else
+                    "SOURCE_MUTATED_DURING_VERIFICATION" if not candidate_unchanged else
+                    "PACKAGE_BUILD_FAILED"
+                )
                 self._fail_remaining(verification_id, stage, classification)
                 return
             archives.append(archive)
