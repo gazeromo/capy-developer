@@ -83,6 +83,22 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "capy_release_candidate_create",
+        "description": "Create one exact unaccepted release candidate from a successful verification. This does not accept, publish, install, bind, or deploy software.",
+        "inputSchema": {
+            "type": "object", "required": ["verification_id"], "additionalProperties": False,
+            "properties": {"verification_id": {"type": "string", "pattern": "^ver_[A-Za-z0-9_]+$"}},
+        },
+    },
+    {
+        "name": "capy_release_candidate_inspect",
+        "description": "Inspect and validate one durable unaccepted release candidate. This does not accept, publish, install, bind, or deploy software.",
+        "inputSchema": {
+            "type": "object", "required": ["release_candidate_id"], "additionalProperties": False,
+            "properties": {"release_candidate_id": {"type": "string", "pattern": "^rc_[0-9a-f]{32}$"}},
+        },
+    },
 ]
 
 
@@ -97,6 +113,14 @@ def _call(core: DeveloperCore, name: str, arguments: dict) -> dict:
         return core.finish_development(arguments.get("session_id", ""), arguments.get("disposition", ""))
     if name == "capy_development_verify":
         return core.verify_development(arguments)
+    if name == "capy_release_candidate_create":
+        if set(arguments) != {"verification_id"}:
+            raise DeveloperError("RELEASE_CANDIDATE_INPUT_INVALID", "create input must contain only verification_id")
+        return core.create_release_candidate(arguments.get("verification_id", ""))
+    if name == "capy_release_candidate_inspect":
+        if set(arguments) != {"release_candidate_id"}:
+            raise DeveloperError("RELEASE_CANDIDATE_INPUT_INVALID", "inspect input must contain only release_candidate_id")
+        return core.inspect_release_candidate(arguments.get("release_candidate_id", ""))
     raise DeveloperError("MCP_TOOL_UNKNOWN", "unknown Capy Developer tool")
 
 
@@ -115,7 +139,7 @@ def handle(core: DeveloperCore, message: dict) -> dict | None:
         return _response(request_id, {
             "protocolVersion": "2025-06-18",
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "capy-developer", "version": "0.2.0"},
+            "serverInfo": {"name": "capy-developer", "version": "0.3.0"},
         })
     if method == "ping":
         return _response(request_id, {})

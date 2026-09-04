@@ -181,6 +181,42 @@ class ToolchainCache:
     def accepted_bundle(self) -> Path:
         return self._bundled_bundle(ACCEPTED_BUNDLE_SHA256)
 
+    def resolve_recorded(
+        self,
+        *,
+        contract: str,
+        release_binding_commit: str,
+        authoring_bundle_sha256: str,
+        wheel_sha256: str,
+    ) -> tuple[Path, dict]:
+        """Resolve immutable toolchain facts without consulting a project lock."""
+        trusted = TRUSTED_RELEASES.get(release_binding_commit)
+        if (
+            contract != "capy.script/dev-v0"
+            or trusted is None
+            or trusted["bundle_sha256"] != authoring_bundle_sha256
+            or trusted["wheel_sha256"] != wheel_sha256
+        ):
+            raise DeveloperError(
+                "TOOLCHAIN_INTEGRITY_FAILED",
+                "verification-recorded toolchain identity is not a trusted exact release",
+            )
+        try:
+            bundle = self._bundled_bundle(authoring_bundle_sha256)
+            manifest = self._verify_bundle(bundle)
+        except DeveloperError as exc:
+            raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", "exact verification-recorded DevKit bytes failed validation") from exc
+        except OSError as exc:
+            raise DeveloperError("TOOLCHAIN_UNAVAILABLE", "exact verification-recorded DevKit bytes are unavailable") from exc
+        if (
+            manifest.get("contract") != contract
+            or manifest.get("source_repository") != trusted["repository"]
+            or manifest.get("source_commit") != trusted["source_commit"]
+            or manifest.get("wheel_sha256") != wheel_sha256
+        ):
+            raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", "DevKit authoring bundle identity is inconsistent")
+        return bundle, manifest
+
     def _verify_bundle(self, bundle: Path) -> dict:
         try:
             with zipfile.ZipFile(bundle) as archive:

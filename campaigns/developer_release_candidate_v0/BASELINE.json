@@ -1,0 +1,28 @@
+{
+  "schema": "capy.developer-release-candidate-baseline/v0",
+  "recorded_at": "2026-09-05T00:00:00Z",
+  "repository": "gazeromo/capy-developer",
+  "branch": "codex/developer-release-candidate-v0",
+  "base_commit": "e684fd601fabe8b072d7a309be44b71abe8b5d53",
+  "base_tree": "6e20b4a15e61b59c14058fa7a786e34d8ff97670",
+  "control_authorization_commit": "46eeee59eb2181950f8107aad07d12dde685bcda",
+  "owner_plan_sha256": "4514d0ca5ce29a1d279689d0821d72fa317be61cb30404fc01a11b8d1668ea79",
+  "accepted_baseline_tests": {
+    "result": "78 passed",
+    "duration_seconds": 124.68
+  },
+  "devkit": {
+    "release_binding_commit": "8c4fec7f814a62ded441786b8eba28af14d1aa2d",
+    "implementation_commit": "e4462973d94584a75a1596f1b06a425a8da7f20d",
+    "authoring_bundle_sha256": "dc2c27611d12ecb12e1a929252a51e177537d8f0e4fba86de5ed93edae886d5c",
+    "wheel_sha256": "46f0b7865491054991b855d3bf709a445b7cc730077aaca2059cc095c685b30d"
+  },
+  "boundary_mutations": {
+    "runtime": 0,
+    "application_repositories": 0,
+    "production": 0,
+    "provider_calls": 0,
+    "provider_secrets": 0,
+    "publication_or_deployment": 0
+  }
+}

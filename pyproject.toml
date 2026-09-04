@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capy-developer"
-version = "0.2.0"
-description = "Harness-neutral Capy project preparation and exact candidate verification"
+version = "0.3.0"
+description = "Harness-neutral Capy project preparation, verification, and release-candidate construction"
 requires-python = ">=3.11"
 license = {text = "Proprietary"}
 dependencies = []

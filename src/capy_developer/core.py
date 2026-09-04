@@ -20,6 +20,7 @@ from .git import (
 )
 from .toolchain import ToolchainCache, ToolchainLock, current_lock, read_lock
 from .verification import VerificationService
+from .release_candidate import ReleaseCandidateService
 from .util import (
     exclusive_lock,
     machine_id,
@@ -46,6 +47,7 @@ class DeveloperCore:
         self.db = Database(self.config.database)
         self.toolchains = ToolchainCache(self.config.cache_root)
         self.verifications = VerificationService(self)
+        self.release_candidates = ReleaseCandidateService(self)
 
     def doctor(self) -> dict:
         bundle = self.toolchains.accepted_bundle()
@@ -53,7 +55,7 @@ class DeveloperCore:
         return {
             "schema": "capy.developer-doctor/v0",
             "ok": True,
-            "version": "0.2.0",
+            "version": "0.3.0",
             "database_schema": SCHEMA_VERSION,
             "git": git_version,
             "roots": {
@@ -61,10 +63,17 @@ class DeveloperCore:
                 "cache": str(self.config.cache_root.resolve()),
                 "repositories": str(self.config.repositories_root.resolve()),
                 "worktrees": str(self.config.worktrees_root.resolve()),
+                "release_candidates": str(self.config.release_candidates_root.resolve()),
             },
             "accepted_toolchain": {
                 "status": "AVAILABLE",
                 "bundle_sha256": bundle.parent.name,
+            },
+            "release_candidate": {
+                "bundle_format": "zip/.capyrc",
+                "manifest_schema": "capy.application-release-candidate/v0",
+                "receipt_schema": "capy.development-verification-receipt/v0",
+                "acceptance": "not_implemented",
             },
         }
 
@@ -601,12 +610,19 @@ class DeveloperCore:
                 "Work only inside the returned workspace.",
                 "Commit candidate changes before authoritative verification.",
                 "Call development_verify for the exact clean commit.",
+                "After verification passes, call release_candidate_create with its verification_id.",
                 "Call development_finish when the coding session ends.",
             ],
         }
 
     def verify_development(self, payload: dict) -> dict:
         return self.verifications.verify(payload)
+
+    def create_release_candidate(self, verification_id: str) -> dict:
+        return self.release_candidates.create(verification_id)
+
+    def inspect_release_candidate(self, release_candidate_id: str) -> dict:
+        return self.release_candidates.inspect(release_candidate_id)
 
     def _project_summary(self, project: dict) -> dict:
         with self.db.connect() as db:

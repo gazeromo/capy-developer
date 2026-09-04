@@ -19,6 +19,8 @@ PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,79}\Z")
 APPLICATION_ID = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+\Z")
 PROJECT_ID = re.compile(r"prj_[A-Za-z0-9_]{1,96}\Z")
 SESSION_ID = re.compile(r"ses_[A-Za-z0-9_]{1,124}\Z")
+VERIFICATION_ID = re.compile(r"ver_[A-Za-z0-9_]{1,124}\Z")
+RELEASE_CANDIDATE_ID = re.compile(r"rc_[0-9a-f]{32}\Z")
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 

@@ -60,6 +60,13 @@ def parser() -> argparse.ArgumentParser:
     finish = development.add_parser("finish")
     finish.add_argument("--session-id", required=True)
     finish.add_argument("--disposition", required=True, choices=["COMPLETED", "CANCELLED"])
+    release_candidate = commands.add_parser("release-candidate").add_subparsers(
+        dest="release_candidate_command", required=True
+    )
+    candidate_create = release_candidate.add_parser("create")
+    candidate_create.add_argument("--verification-id", required=True)
+    candidate_inspect = release_candidate.add_parser("inspect")
+    candidate_inspect.add_argument("--release-candidate-id", required=True)
     commands.add_parser("mcp")
     return root
 
@@ -91,6 +98,10 @@ def run(arguments: list[str] | None = None) -> dict | None:
         })
     if args.command == "development" and args.development_command == "finish":
         return core.finish_development(args.session_id, args.disposition)
+    if args.command == "release-candidate" and args.release_candidate_command == "create":
+        return core.create_release_candidate(args.verification_id)
+    if args.command == "release-candidate" and args.release_candidate_command == "inspect":
+        return core.inspect_release_candidate(args.release_candidate_id)
     raise DeveloperError("CLI_COMMAND_INVALID", "unsupported command")
 
 
@@ -101,6 +112,8 @@ def main(arguments: list[str] | None = None) -> int:
             print(json.dumps(result, sort_keys=True))
         if result is not None and result.get("schema") == "capy.development-verification-result/v0":
             return 0 if result.get("status") == "PASSED" else 1
+        if result is not None and result.get("schema") == "capy.development-release-candidate-result/v0":
+            return 0 if result.get("ok") else 1
         return 0
     except DeveloperError as exc:
         print(json.dumps(exc.result(), sort_keys=True))

@@ -7,7 +7,7 @@ session bound to one project, one exact Git base, one generated branch, one
 isolated worktree, and one truthful DevKit lock state.
 
 V0 is local and harness-neutral. Its interfaces are a versioned JSON CLI and
-four MCP stdio tools backed by the same core. Native Git remains source
+seven MCP stdio tools backed by the same core. Native Git remains source
 authority; SQLite is only a durable catalog and session journal.
 
 Exact committed portable-application verification is owned here through one
@@ -15,3 +15,8 @@ fixed offline locked-DevKit pipeline and durable evidence. Runtime preview,
 release acceptance, production publication, remote MCP, repository-provider
 provisioning, coding-agent supervision, and extraction of runtime builder
 residue remain later decisions.
+
+One passed verification may be projected into a deterministic portable release
+candidate carrying its exact application archive, path-free verification
+receipt, and recorded DevKit authoring bundle. The candidate is evidence for a
+later independent acceptor; it has no acceptance or activation authority.

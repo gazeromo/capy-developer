@@ -7,7 +7,7 @@ from pathlib import Path
 from .util import utc_now
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class ClosingConnection(sqlite3.Connection):
@@ -38,7 +38,7 @@ class Database:
             ).fetchone()
             if existing:
                 current = db.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
-                if current is not None and int(current[0]) not in {1, SCHEMA_VERSION}:
+                if current is not None and int(current[0]) not in {1, 2, SCHEMA_VERSION}:
                     raise RuntimeError(f"unsupported database schema {current[0]}")
             db.executescript(
                 """
@@ -167,12 +167,58 @@ class Database:
                     PRIMARY KEY(verification_id, stage_order),
                     UNIQUE(verification_id, stage_name)
                 );
+                CREATE TABLE IF NOT EXISTS release_candidates (
+                    release_candidate_id TEXT PRIMARY KEY,
+                    verification_id TEXT NOT NULL UNIQUE REFERENCES verification_attempts(verification_id),
+                    session_id TEXT NOT NULL REFERENCES sessions(session_id),
+                    project_id TEXT NOT NULL REFERENCES projects(project_id),
+                    application_id TEXT NOT NULL,
+                    candidate_commit TEXT NOT NULL,
+                    candidate_tree TEXT NOT NULL,
+                    base_commit TEXT NOT NULL,
+                    identity_sha256 TEXT NOT NULL,
+                    repository_kind TEXT NOT NULL,
+                    repository_public_identity TEXT,
+                    repository_identity_sha256 TEXT NOT NULL,
+                    application_archive_sha256 TEXT NOT NULL,
+                    application_archive_size_bytes INTEGER NOT NULL,
+                    descriptor_sha256 TEXT NOT NULL,
+                    toolchain_contract TEXT NOT NULL,
+                    toolchain_release_binding_commit TEXT NOT NULL,
+                    toolchain_implementation_commit TEXT NOT NULL,
+                    toolchain_authoring_bundle_sha256 TEXT NOT NULL,
+                    toolchain_wheel_filename TEXT NOT NULL,
+                    toolchain_wheel_sha256 TEXT NOT NULL,
+                    verification_receipt_sha256 TEXT NOT NULL,
+                    manifest_json TEXT NOT NULL,
+                    manifest_sha256 TEXT NOT NULL,
+                    bundle_sha256 TEXT,
+                    bundle_size_bytes INTEGER,
+                    bundle_path TEXT,
+                    status TEXT NOT NULL,
+                    classification TEXT,
+                    attempt_count INTEGER NOT NULL,
+                    started_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    terminal_at TEXT,
+                    error_code TEXT,
+                    error_detail TEXT
+                );
+                CREATE INDEX IF NOT EXISTS release_candidates_session
+                    ON release_candidates(session_id, started_at, release_candidate_id);
+                CREATE TABLE IF NOT EXISTS release_candidate_members (
+                    release_candidate_id TEXT NOT NULL REFERENCES release_candidates(release_candidate_id),
+                    member_path TEXT NOT NULL,
+                    sha256 TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    PRIMARY KEY(release_candidate_id, member_path)
+                );
                 """
             )
             current = db.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
             if current is None:
                 db.execute("INSERT INTO metadata VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
-            elif int(current[0]) == 1:
+            elif int(current[0]) in {1, 2}:
                 db.execute("UPDATE metadata SET value=? WHERE key='schema_version'", (str(SCHEMA_VERSION),))
 
     @staticmethod

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import DeveloperError
-from .util import SESSION_ID, safe_resolve
+from .util import RELEASE_CANDIDATE_ID, SESSION_ID, safe_resolve
 
 
 def _default_data_root() -> Path:
@@ -60,6 +60,7 @@ class Config:
         for path in (
             self.data_root, self.cache_root, self.repositories_root,
             self.worktrees_root, self.verification_temporary_root,
+            self.release_candidates_root, self.release_candidate_temporary_root,
         ):
             path.mkdir(parents=True, exist_ok=True)
 
@@ -83,8 +84,22 @@ class Config:
     def verification_artifacts_root(self) -> Path:
         return self.cache_root / "verification-artifacts" / "sha256"
 
+    @property
+    def release_candidates_root(self) -> Path:
+        return self.data_root / "release-candidates" / "sha256"
+
+    @property
+    def release_candidate_temporary_root(self) -> Path:
+        return self.data_root / "release-candidate-attempts"
+
     def verification_lock(self, session_id: str) -> Path:
         if not isinstance(session_id, str) or SESSION_ID.fullmatch(session_id) is None:
             raise DeveloperError("SESSION_ID_INVALID", "session_id is invalid")
         root = self.data_root / "verification-locks"
         return safe_resolve(root / f"{session_id}.lock", root=root)
+
+    def release_candidate_lock(self, release_candidate_id: str) -> Path:
+        if not isinstance(release_candidate_id, str) or RELEASE_CANDIDATE_ID.fullmatch(release_candidate_id) is None:
+            raise DeveloperError("RELEASE_CANDIDATE_ID_INVALID", "release_candidate_id is invalid")
+        root = self.data_root / "release-candidate-locks"
+        return safe_resolve(root / f"{release_candidate_id}.lock", root=root)
