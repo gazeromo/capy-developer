@@ -134,7 +134,10 @@ def validate_candidate(path: Path, branch: str, candidate: str, base: str) -> di
         raise DeveloperError("CANDIDATE_BASE_MISMATCH", "candidate_commit does not descend from the session base")
     for marker in ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
         marker_path = run_git(["-C", str(path), "rev-parse", "--git-path", marker], check=False)
-        if marker_path and Path(marker_path).exists():
+        resolved_marker = Path(marker_path)
+        if marker_path and not resolved_marker.is_absolute():
+            resolved_marker = path / resolved_marker
+        if marker_path and resolved_marker.exists():
             raise DeveloperError("GIT_OPERATION_UNRESOLVED", "managed worktree has an unresolved Git operation")
     tree = run_git(["-C", str(path), "rev-parse", f"{candidate}^{{tree}}"])
     listing = run_git(["-C", str(path), "ls-tree", "-r", candidate])

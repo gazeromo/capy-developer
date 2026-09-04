@@ -17,7 +17,7 @@ from capy_developer.database import Database, SCHEMA_VERSION
 from capy_developer.errors import DeveloperError
 from capy_developer.git import run_git
 from capy_developer.mcp import handle
-from capy_developer.process import OUTPUT_LIMIT, ProcessResult, _bounded, run_process
+from capy_developer.process import OUTPUT_LIMIT, ProcessResult, _bounded, combine_process_results, run_process
 from capy_developer.toolchain import ACCEPTED_WHEEL_SHA256
 from capy_developer.util import exclusive_lock
 
@@ -251,6 +251,26 @@ class VerificationTests(unittest.TestCase):
         self.assertNotIn("PYTHONPATH", environment)
         self.assertNotIn("GIT_ASKPASS", environment)
         self.assertEqual("1", environment["PIP_NO_INDEX"])
+
+    def test_combined_process_receipt_remains_bounded_and_keeps_timestamps(self):
+        first = ProcessResult(0, "a" * OUTPUT_LIMIT, "", 0, 0, 2, False, "start", "middle")
+        second = ProcessResult(0, "b" * OUTPUT_LIMIT, "", 0, 0, 3, False, "middle", "terminal")
+        combined = combine_process_results(first, second)
+        self.assertLessEqual(len(combined.stdout.encode()), OUTPUT_LIMIT)
+        self.assertGreater(combined.stdout_truncated_bytes, 0)
+        self.assertEqual((5, "start", "terminal"), (combined.duration_ms, combined.started_at, combined.terminal_at))
+
+    def test_allocated_internal_developer_error_is_preserved_in_receipt(self):
+        session, workspace = self.start()
+        with mock.patch.object(
+            self.core.verifications,
+            "_temporary_root",
+            side_effect=DeveloperError("VERIFICATION_PATH_CONFLICT", "deterministic conflict"),
+        ):
+            result = self.core.verify_development(self.payload(session, workspace))
+        self.assertEqual(("FAILED", "VERIFIER_INTERNAL_FAILED"), (result["status"], result["classification"]))
+        self.assertEqual("VERIFICATION_PATH_CONFLICT", result["error"]["code"])
+        self.assertEqual("deterministic conflict", result["error"]["detail"])
 
     def test_live_session_lock_returns_busy_and_blocks_finish(self):
         session, workspace = self.start()

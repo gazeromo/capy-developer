@@ -16,7 +16,7 @@ from .git import (
     run_git,
     validate_candidate,
 )
-from .process import ProcessResult, run_process
+from .process import ProcessResult, combine_process_results, run_process
 from .toolchain import ResolvedToolchain, read_lock, sha256_file
 from .util import (
     APPLICATION_ID,
@@ -131,9 +131,15 @@ class VerificationService:
                     resolved,
                     temporary,
                 )
-            except DeveloperError:
+            except DeveloperError as exc:
                 if allocated:
-                    self._terminalize(verification_id, "FAILED", "VERIFIER_INTERNAL_FAILED")
+                    self._terminalize(
+                        verification_id,
+                        "FAILED",
+                        "VERIFIER_INTERNAL_FAILED",
+                        error_code=exc.code,
+                        error_detail=exc.detail,
+                    )
                 else:
                     raise
             except Exception as exc:
@@ -299,15 +305,7 @@ class VerificationService:
             environment=environment,
             timeout=TIMEOUTS["toolchain_install"],
         )
-        combined = ProcessResult(
-            install.exit_code,
-            create.stdout + install.stdout,
-            create.stderr + install.stderr,
-            create.stdout_truncated_bytes + install.stdout_truncated_bytes,
-            create.stderr_truncated_bytes + install.stderr_truncated_bytes,
-            create.duration_ms + install.duration_ms,
-            install.timed_out,
-        )
+        combined = combine_process_results(create, install)
         if install.timed_out or install.exit_code != 0:
             self._record_process(verification_id, "toolchain_install", combined, False)
             self._fail_remaining(verification_id, "toolchain_install", "STAGE_TIMEOUT" if install.timed_out else "TOOLCHAIN_INSTALL_FAILED")
@@ -316,15 +314,7 @@ class VerificationService:
             [str(python), "-c", "import capy_script"], cwd=attempt_root,
             environment=environment, timeout=30,
         )
-        combined = ProcessResult(
-            import_check.exit_code,
-            combined.stdout + import_check.stdout,
-            combined.stderr + import_check.stderr,
-            combined.stdout_truncated_bytes + import_check.stdout_truncated_bytes,
-            combined.stderr_truncated_bytes + import_check.stderr_truncated_bytes,
-            combined.duration_ms + import_check.duration_ms,
-            import_check.timed_out,
-        )
+        combined = combine_process_results(combined, import_check)
         if import_check.timed_out or import_check.exit_code != 0:
             self._record_process(verification_id, "toolchain_install", combined, False)
             self._fail_remaining(verification_id, "toolchain_install", "TOOLCHAIN_INSTALL_FAILED")
@@ -485,10 +475,9 @@ class VerificationService:
         return environment
 
     def _record_process(self, verification_id: str, stage: str, result: ProcessResult, passed: bool, *, facts: dict | None = None) -> None:
-        terminal = utc_now()
         self._record_stage(
             verification_id, stage, "PASSED" if passed else "FAILED",
-            started_at=terminal, terminal_at=terminal, duration_ms=result.duration_ms,
+            started_at=result.started_at, terminal_at=result.terminal_at, duration_ms=result.duration_ms,
             exit_code=result.exit_code, stdout=result.stdout, stderr=result.stderr,
             stdout_truncated=result.stdout_truncated_bytes,
             stderr_truncated=result.stderr_truncated_bytes,
