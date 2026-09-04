@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 from unittest import mock
 
 from capy_developer.config import Config
@@ -21,6 +23,13 @@ from capy_developer.mcp import handle
 from capy_developer.process import OUTPUT_LIMIT, ProcessResult, _bounded, combine_process_results, run_process
 from capy_developer.toolchain import ACCEPTED_WHEEL_SHA256
 from capy_developer.util import exclusive_lock
+
+
+def file_uri_path(uri: str) -> Path:
+    parsed = urlparse(uri)
+    if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
+        raise ValueError("expected a local file URI")
+    return Path(url2pathname(parsed.path))
 
 
 class VerificationTests(unittest.TestCase):
@@ -73,7 +82,7 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual(9, len(first["stages"]))
         self.assertTrue(all(stage["status"] == "PASSED" for stage in first["stages"]))
         self.assertEqual(2, first["candidate_archive"]["byte_identical_builds"])
-        archive = Path(first["candidate_archive"]["path_uri"].removeprefix("file://"))
+        archive = file_uri_path(first["candidate_archive"]["path_uri"])
         self.assertTrue(archive.is_file())
         restarted = DeveloperCore(self.config)
         second = restarted.verify_development(payload)
@@ -219,7 +228,7 @@ class VerificationTests(unittest.TestCase):
         session, workspace = self.start()
         payload = self.payload(session, workspace)
         first = self.core.verify_development(payload)
-        archive = Path(first["candidate_archive"]["path_uri"].removeprefix("file://"))
+        archive = file_uri_path(first["candidate_archive"]["path_uri"])
         archive.unlink()
         with mock.patch("capy_developer.verification.run_process") as runner:
             replay = self.core.verify_development(payload)
