@@ -1,0 +1,79 @@
+{
+  "schema": "capy.developer-release-candidate-closure/v0",
+  "status": "accepted-for-final-closure-commit",
+  "closed_at": "2026-09-04T19:23:11Z",
+  "repository": "gazeromo/capy-developer",
+  "base_commit": "e684fd601fabe8b072d7a309be44b71abe8b5d53",
+  "implementation": {
+    "commit": "a98b6d54eb5f73b58dffc2b4249f419cd7823113",
+    "tree": "f6e275033bd1606f6aef5599188eb8928dfdac31",
+    "ci_run_id": 33908132153,
+    "ci_url": "https://github.com/gazeromo/capy-developer/actions/runs/33908132153",
+    "ci_conclusion": "success",
+    "tests_per_platform": 96,
+    "platforms": [
+      "ubuntu-latest",
+      "macos-latest",
+      "windows-latest"
+    ]
+  },
+  "evidence": {
+    "commit": "86acd9f58fc3ea742b121e372de98851e54dd28a",
+    "tree": "7d8ec4c0476cff7f5711b54bd281558172a2720f",
+    "ci_run_id": 33909767967,
+    "ci_url": "https://github.com/gazeromo/capy-developer/actions/runs/33909767967",
+    "ci_conclusion": "success",
+    "tests_per_platform": 96,
+    "platforms": [
+      "ubuntu-latest",
+      "macos-latest",
+      "windows-latest"
+    ]
+  },
+  "release_candidate": {
+    "release_candidate_id": "rc_1d9048c0ad8793686bb9351cead8f762",
+    "identity_sha256": "1d9048c0ad8793686bb9351cead8f762c41a1a1520f6b6a604884a10b1f3d465",
+    "manifest_sha256": "53cebf69c3a7b167e13d7eb7ff5dfc5f690ca85d46766c3cb78b0cb7f472aeac",
+    "bundle_sha256": "ac5789e6c885e20254081d99b4e561017b5960199a6d4658aba10d6dac51338a",
+    "bundle_size_bytes": 33934,
+    "independent_oracle": "accepted",
+    "tamper_matrix": "26/26 rejected",
+    "independent_acceptance": "required; not performed"
+  },
+  "package": {
+    "version": "0.3.0",
+    "filename": "capy_developer-0.3.0-py3-none-any.whl",
+    "sha256": "e69eb720a214d6cf1e960e19a0207ada5695664374412f0ec61380d6fb2e3a3c",
+    "size_bytes": 97221,
+    "reproducible_builds": 2,
+    "published_or_deployed": false
+  },
+  "reviews": {
+    "implementation_identity_format": "ACCEPT; no actionable P0-P3 findings",
+    "implementation_persistence_recovery": "ACCEPT; no actionable P0-P3 findings",
+    "evidence_identity_consistency": "ACCEPT; no actionable P0-P3 findings",
+    "evidence_closure_readiness": "ACCEPT; no actionable P0-P3 findings"
+  },
+  "receipts": {
+    "qualification_sha256": "c0129993b9668d9efef5deb934385fd1dc82a8d4d2dde04c89de9786c4c8033f",
+    "journey_a_sha256": "b02c70d46d63cc30d41769c345e433eb97467532b9b961db5959b79293280bff",
+    "journey_b_sha256": "789fb4274fe411c308bcb2a5f9d4b03b5f49961529192dd11c8d1c0dacc0dc8f",
+    "oracle_sha256": "d31166c8a0b63631ea9aff0825ee1c88747ecff5a3ed29c0db0beaed356a1d14",
+    "oracle_valid_sha256": "7fbd867bbe7bec1f16f6d52de2b5ded124036dd5a6f2ac148aca516999bd5a70",
+    "oracle_tamper_matrix_sha256": "191ae92145169fcffdc401039babbf2402310120ee42c39cad768c70a9fa718b",
+    "reviews_sha256": "8ae3c449b510e5378fbcacd477272abe0aa088fe7dd55d20682c745ecdb2f688",
+    "package_release_sha256": "7bc17f13a68c8c70cb524df35b7989c812e62bcb5e012923b6fb55956f9800ef"
+  },
+  "boundary": {
+    "application_repositories_changed": 0,
+    "runtime_changed": 0,
+    "production_changed": 0,
+    "provider_calls": 0,
+    "provider_secrets_accessed": 0,
+    "publication_installation_binding_deployment": 0
+  },
+  "non_claims": "The exact 18 non-claims from implementation plan section 33 are preserved in the qualification receipt.",
+  "remaining_blockers": [],
+  "merge_policy": "After an independent read-only closure-delta ACCEPT, strictly fast-forward this closure commit to main. Then require exact post-merge CI on all three platforms.",
+  "deployment_authorized": false
+}
