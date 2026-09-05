@@ -9,6 +9,8 @@ import tempfile
 import unittest
 import zipfile
 import hashlib
+import importlib.util
+from contextlib import closing
 import subprocess
 import sys
 from pathlib import Path
@@ -226,10 +228,10 @@ class InteractionV1Tests(unittest.TestCase):
         shutil.copyfile(source, destination)
         shutil.copyfile(destination, backup)
         tables = ["projects", "project_aliases", "project_applications", "toolchain_locks", "sessions", "session_events", "verification_attempts", "verification_stages", "release_candidates", "release_candidate_members"]
-        with sqlite3.connect(destination) as db:
+        with closing(sqlite3.connect(destination)) as db:
             before = {table: db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in tables}
         Database(destination)
-        with sqlite3.connect(destination) as db:
+        with closing(sqlite3.connect(destination)) as db:
             after = {table: db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in tables}
             self.assertEqual(str(SCHEMA_VERSION), db.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()[0])
             self.assertEqual({"capy.development-verification-pipeline/v0"}, {row[0] for row in db.execute("SELECT pipeline_schema FROM verification_attempts")})
@@ -260,7 +262,18 @@ class InteractionV1Tests(unittest.TestCase):
         matrix = subprocess.run([sys.executable, str(campaign / "tamper_matrix.py"), str(artifact_candidate)], cwd=self.root, text=True, capture_output=True)
         self.assertEqual(0, matrix.returncode, matrix.stdout + matrix.stderr)
         facts = json.loads(matrix.stdout)
-        self.assertEqual((43, 43, []), (facts["cases"], facts["rejected"], facts["unexpected_accepts"]))
+        self.assertEqual((49, 49, []), (facts["cases"], facts["rejected"], facts["unexpected_accepts"]))
+        sys.path.insert(0, str(campaign))
+        try:
+            spec = importlib.util.spec_from_file_location("capy_v1_tamper_matrix", campaign / "tamper_matrix.py")
+            self.assertIsNotNone(spec)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        finally:
+            sys.path.pop(0)
+        for name, payload in module.cases(artifact_candidate.read_bytes()).items():
+            with self.subTest(production_validator=name), self.assertRaises(DeveloperError):
+                validate_bundle_bytes(payload)
 
 
 if __name__ == "__main__":

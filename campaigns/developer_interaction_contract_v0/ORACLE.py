@@ -46,6 +46,14 @@ def exact(value: object, keys: set[str], label: str) -> dict:
     return value
 
 
+def exact_pairs(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result: raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
 def infos(archive: zipfile.ZipFile, names: tuple[str, ...] | None = None) -> list[zipfile.ZipInfo]:
     values = archive.infolist()
     observed = [item.filename for item in values]
@@ -85,9 +93,12 @@ def leaves(schema: dict, prefix: tuple[str, ...] = (), required: bool = True) ->
         if schema.get("additionalProperties") is not False or not isinstance(schema.get("properties", {}), dict):
             raise ValueError("open input")
         needed = schema.get("required", [])
-        if not isinstance(needed, list): raise ValueError("required")
+        properties = schema.get("properties", {})
+        if not isinstance(needed, list) or any(not isinstance(name,str) for name in needed) or len(set(needed)) != len(needed) or not set(needed) <= set(properties): raise ValueError("required")
         result = {}
-        for name, child in schema.get("properties", {}).items(): result.update(leaves(child, (*prefix, name), required and name in needed))
+        for name, child in properties.items():
+            if re.fullmatch(r"[a-z][a-z0-9_]*", name) is None: raise ValueError("field name")
+            result.update(leaves(child, (*prefix, name), required and name in needed))
         return result
     if schema.get("type") not in {"string","integer","number","boolean"} or not prefix: raise ValueError("input leaf")
     return {".".join(prefix):(schema, required)}
@@ -95,9 +106,39 @@ def leaves(schema: dict, prefix: tuple[str, ...] = (), required: bool = True) ->
 
 def accepts(value: object, schema: dict) -> bool:
     kind = schema.get("type")
-    return ((kind == "string" and isinstance(value, str) and ("enum" not in schema or value in schema["enum"])) or
-            (kind == "boolean" and type(value) is bool) or (kind == "integer" and type(value) is int) or
-            (kind == "number" and isinstance(value, (int,float)) and not isinstance(value, bool) and (not isinstance(value,float) or math.isfinite(value))))
+    if "enum" in schema and value not in schema["enum"]: return False
+    if kind == "string": return isinstance(value,str) and len(value) >= schema.get("minLength",0) and len(value) <= schema.get("maxLength",len(value)) and ("pattern" not in schema or re.search(schema["pattern"],value) is not None)
+    if kind == "boolean": return type(value) is bool
+    if kind == "integer": return type(value) is int and value >= schema.get("minimum",value) and value <= schema.get("maximum",value)
+    if kind == "number": return isinstance(value,(int,float)) and not isinstance(value,bool) and (not isinstance(value,float) or math.isfinite(value)) and value >= schema.get("minimum",value) and value <= schema.get("maximum",value)
+    return False
+
+
+def text(value: object, maximum: int) -> bool:
+    return isinstance(value,str) and 1 <= len(value) <= maximum and value == value.strip() and "\x00" not in value and not any(0xD800 <= ord(character) <= 0xDFFF for character in value)
+
+
+def text_list(value: object, maximum: int) -> bool:
+    return isinstance(value,list) and 1 <= len(value) <= maximum and all(text(item,500) for item in value)
+
+
+def identifier(value: object) -> bool:
+    return isinstance(value,str) and len(value) <= 128 and re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+",value) is not None
+
+
+def dotted(value: object) -> bool:
+    return isinstance(value,str) and len(value) <= 256 and all(re.fullmatch(r"[a-z][a-z0-9_]*",part) is not None for part in value.split("."))
+
+
+def artifact_name(value: object) -> bool:
+    return isinstance(value,str) and 1 <= len(value) <= 120 and value not in {".",".."} and not value.startswith(".") and "/" not in value and "\\" not in value and not any(ch.isspace() or ord(ch)<32 or ord(ch)==127 for ch in value)
+
+
+def bounded(value: object, depth: int = 0) -> bool:
+    if depth > 16: return False
+    if isinstance(value,dict): return all(bounded(child,depth+1) for child in value.values())
+    if isinstance(value,list): return all(bounded(child,depth+1) for child in value)
+    return not isinstance(value,float) or math.isfinite(value)
 
 
 def result_path(schema: dict, dotted: str) -> dict | None:
@@ -109,18 +150,20 @@ def result_path(schema: dict, dotted: str) -> dict | None:
 
 
 def validate_interaction(descriptor: dict, source: bytes, projection: bytes) -> dict:
-    document = json.loads(source)
-    if canonical(document) != projection or len(source) > 64 * 1024: raise ValueError("interaction canonical")
+    document = json.loads(source, object_pairs_hook=lambda pairs: exact_pairs(pairs), parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+    if not source or canonical(document) != projection or len(source) > 64 * 1024 or not bounded(document): raise ValueError("interaction canonical")
     exact(document, {"schema","application_id","title","purpose","not_for","operation","boundaries"}, "interaction shape")
-    if document["schema"] != INTERACTION_SCHEMA or document["application_id"] != descriptor.get("id"): raise ValueError("interaction identity")
+    if document["schema"] != INTERACTION_SCHEMA or not identifier(document["application_id"]) or document["application_id"] != descriptor.get("id"): raise ValueError("interaction identity")
     if descriptor.get("schema") != "capy.script/dev-v0" or descriptor.get("state_required") is not False or descriptor.get("connections") != [] or descriptor.get("side_effect") not in {"read_only","artifact_generation"}: raise ValueError("eligibility")
+    if not text(document["title"],120) or not text(document["purpose"],1000) or not text_list(document["not_for"],32): raise ValueError("interaction text")
     operation = exact(document["operation"], {"operation_id","title","user_outcome","description","request_fields","resource_fields","examples","common_misunderstandings","result"}, "operation")
-    if re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+", str(operation["operation_id"])) is None: raise ValueError("operation id")
+    if not identifier(operation["operation_id"]) or not text(operation["title"],120) or not text(operation["user_outcome"],500) or not text(operation["description"],1000) or not text_list(operation["examples"],16) or not text_list(operation["common_misunderstandings"],16): raise ValueError("operation fields")
     expected = leaves(descriptor["input_schema"]); observed = set()
     request_keys = {"field_id","label","description","required","input_kind","safe_default","examples","clarification_question"}
+    if not isinstance(operation["request_fields"],list) or len(operation["request_fields"]) > 64: raise ValueError("request list")
     for field in operation["request_fields"]:
         exact(field, request_keys, "request field"); field_id = field["field_id"]
-        if field_id in observed or field_id not in expected: raise ValueError("request coverage")
+        if not dotted(field_id) or field_id in observed or field_id not in expected or not text(field["label"],120) or not text(field["description"],1000) or not text_list(field["examples"],16) or not text(field["clarification_question"],500): raise ValueError("request coverage")
         observed.add(field_id); rule, required = expected[field_id]
         kinds = {"string":({"choice"} if "enum" in rule else {"text","long_text"}),"integer":{"number"},"number":{"number"},"boolean":{"boolean"}}[rule["type"]]
         if type(field["required"]) is not bool or field["required"] is not required or field["input_kind"] not in kinds: raise ValueError("request semantics")
@@ -128,32 +171,37 @@ def validate_interaction(descriptor: dict, source: bytes, projection: bytes) -> 
     if observed != set(expected): raise ValueError("missing request")
     resources = {item["name"]:item for item in descriptor["resources"]}; observed = set()
     resource_keys = {"slot","label","description","required","minimum_count","maximum_count","input_kind","examples","clarification_question"}
+    if not isinstance(operation["resource_fields"],list) or len(operation["resource_fields"]) > 16: raise ValueError("resource list")
     for field in operation["resource_fields"]:
         exact(field, resource_keys, "resource field"); slot = field["slot"]
-        if slot in observed or slot not in resources: raise ValueError("resource coverage")
+        if not isinstance(slot,str) or re.fullmatch(r"[a-z][a-z0-9_]*",slot) is None or slot in observed or slot not in resources or not text(field["label"],120) or not text(field["description"],1000) or not text_list(field["examples"],16) or not text(field["clarification_question"],500): raise ValueError("resource coverage")
         observed.add(slot); rule = resources[slot]
         if (field["required"],field["minimum_count"],field["maximum_count"],field["input_kind"]) != (rule["required"],rule["min_items"],rule["max_items"],"file"): raise ValueError("resource semantics")
     if observed != set(resources): raise ValueError("missing resource")
-    result = exact(operation["result"], {"presentation","facts","artifacts"}, "result"); facts = set()
+    result = exact(operation["result"], {"presentation","facts","artifacts"}, "result")
+    if not isinstance(result["facts"],list) or len(result["facts"]) > 64 or not isinstance(result["artifacts"],list) or len(result["artifacts"]) > 32 or (not result["facts"] and not result["artifacts"]): raise ValueError("result lists")
+    facts = set()
     for fact in result["facts"]:
         exact(fact,{"path","label"},"fact")
-        if fact["path"] in facts: raise ValueError("fact duplicate")
+        if not dotted(fact["path"]) or fact["path"] in facts or not text(fact["label"],120): raise ValueError("fact duplicate")
         facts.add(fact["path"]); node = result_path(descriptor["result_schema"], fact["path"])
         if node is None or node.get("type") not in {"string","integer","number","boolean"}: raise ValueError("fact unknown")
     filenames = []
     for artifact in result["artifacts"]:
         exact(artifact,{"filename","label"},"artifact"); filename = artifact["filename"]
-        if not isinstance(filename,str) or len(filename) > 120 or filename in filenames or filename in {".",".."} or filename.startswith(".") or "/" in filename or "\\" in filename or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in filename): raise ValueError("artifact filename")
+        if not artifact_name(filename) or filename in filenames or not text(artifact["label"],120): raise ValueError("artifact filename")
         filenames.append(filename)
     node = descriptor["result_schema"].get("properties",{}).get("artifact_filenames",{}); expected_files = node.get("items",{}).get("enum") if node.get("type") == "array" else None
     if descriptor["side_effect"] == "read_only" and filenames: raise ValueError("read-only artifacts")
     if descriptor["side_effect"] == "artifact_generation" and filenames != expected_files: raise ValueError("artifact mismatch")
     if result["presentation"] != ("artifact_result" if filenames else "facts"): raise ValueError("presentation")
     boundaries = document["boundaries"]
-    if not isinstance(boundaries,list) or not boundaries: raise ValueError("boundaries")
+    if not isinstance(boundaries,list) or not 1 <= len(boundaries) <= 32: raise ValueError("boundaries")
+    seen = set()
     for boundary in boundaries:
         exact(boundary,{"boundary_id","request_class","explanation","nearest_operation_ids"},"boundary")
-        if boundary["nearest_operation_ids"] != [operation["operation_id"]]: raise ValueError("boundary operation")
+        if not identifier(boundary["boundary_id"]) or boundary["boundary_id"] in seen or not text(boundary["request_class"],1000) or not text(boundary["explanation"],1000) or not isinstance(boundary["nearest_operation_ids"],list) or not boundary["nearest_operation_ids"] or any(value != operation["operation_id"] for value in boundary["nearest_operation_ids"]): raise ValueError("boundary operation")
+        seen.add(boundary["boundary_id"])
     return {"schema":document["schema"],"operation_id":operation["operation_id"]}
 
 
@@ -168,8 +216,28 @@ def validate(payload: bytes) -> dict:
     exact(manifest,{"schema","release_candidate_id","identity_sha256","project","source","application","toolchain","verification","handoff","verified_at"},"manifest")
     exact(receipt,{"schema","pipeline","verification_id","status","classification","session_id","project_id","application_id","source","toolchain","interaction_contract","stages","application_archive","verified_at"},"receipt")
     if manifest["schema"] != "capy.application-release-candidate/v1" or receipt["schema"] != "capy.development-verification-receipt/v1" or receipt["pipeline"] != "capy.development-verification-pipeline/v1" or manifest["handoff"] != HANDOFF: raise ValueError("schemas/claims")
+    project = exact(manifest["project"],{"project_id"},"project")
+    source = exact(manifest["source"],{"repository","commit","tree","base_commit"},"source")
+    repository = exact(source["repository"],{"kind","public_identity","identity_sha256"},"repository")
     app = exact(manifest["application"],{"id","contract","descriptor_sha256","archive","interaction"},"application")
+    exact(app["archive"],{"member","sha256","size_bytes"},"archive binding")
     interaction = exact(app["interaction"],{"schema","source_member","source_sha256","member","sha256","size_bytes","operation_id"},"interaction binding")
+    tool = exact(manifest["toolchain"],{"release_binding_commit","implementation_commit","authoring_bundle","wheel_filename","wheel_sha256","interaction_contract"},"toolchain")
+    exact(tool["authoring_bundle"],{"member","sha256","size_bytes"},"toolchain bundle")
+    verification = exact(manifest["verification"],{"verification_id","receipt"},"verification")
+    exact(verification["receipt"],{"member","sha256","size_bytes"},"receipt binding")
+    exact(receipt["source"],{"commit","tree","base_commit"},"receipt source")
+    receipt_tool = exact(receipt["toolchain"],{"contract","interaction_contract","lock_digest","release_binding_commit","implementation_commit","authoring_bundle_sha256","wheel_filename","wheel_sha256"},"receipt toolchain")
+    exact(receipt["application_archive"],{"sha256","size_bytes"},"receipt archive")
+    hex40 = lambda value:isinstance(value,str) and re.fullmatch(r"[0-9a-f]{40}",value) is not None
+    hex64 = lambda value:isinstance(value,str) and re.fullmatch(r"[0-9a-f]{64}",value) is not None
+    nonnegative = lambda value:type(value) is int and value >= 0
+    if repository["kind"] not in {"local","remote"} or not hex64(repository["identity_sha256"]): raise ValueError("repository identity")
+    if repository["kind"] == "local" and repository["public_identity"] is not None: raise ValueError("local identity")
+    if repository["kind"] == "remote" and (not isinstance(repository["public_identity"],str) or not repository["public_identity"].startswith("git://") or "@" in repository["public_identity"] or digest(repository["public_identity"].encode()) != repository["identity_sha256"]): raise ValueError("remote identity")
+    if re.fullmatch(r"prj_[A-Za-z0-9_]{1,96}",str(project["project_id"])) is None or not identifier(app["id"]) or re.fullmatch(r"ver_[A-Za-z0-9_]{1,124}",str(verification["verification_id"])) is None or re.fullmatch(r"ses_[A-Za-z0-9_]{1,124}",str(receipt["session_id"])) is None or not all(hex40(source[key]) for key in ("commit","tree","base_commit")) or not hex40(tool["release_binding_commit"]) or not hex40(tool["implementation_commit"]): raise ValueError("identity syntax")
+    if not all(hex64(value) for value in (app["descriptor_sha256"],app["archive"]["sha256"],interaction["source_sha256"],interaction["sha256"],tool["authoring_bundle"]["sha256"],tool["wheel_sha256"],verification["receipt"]["sha256"],receipt_tool["lock_digest"],receipt["application_archive"]["sha256"])): raise ValueError("digest syntax")
+    if not all(nonnegative(value) for value in (app["archive"]["size_bytes"],interaction["size_bytes"],tool["authoring_bundle"]["size_bytes"],verification["receipt"]["size_bytes"],receipt["application_archive"]["size_bytes"])): raise ValueError("size syntax")
     bindings = ((app["archive"],MEMBERS[1]),(interaction,MEMBERS[2]),(manifest["verification"]["receipt"],MEMBERS[3]),(manifest["toolchain"]["authoring_bundle"],MEMBERS[4]))
     for binding,name in bindings:
         if binding.get("member") != name or binding.get("sha256") != digest(values[name]) or binding.get("size_bytes") != len(values[name]): raise ValueError("member binding")
@@ -184,13 +252,19 @@ def validate(payload: bytes) -> dict:
     stage_keys = {"name","status","exit_code","stored_stdout_sha256","stored_stdout_bytes","stored_stderr_sha256","stored_stderr_bytes","stdout_truncated_bytes","stderr_truncated_bytes","facts"}
     for stage in receipt["stages"]:
         exact(stage,stage_keys,"stage"); facts = exact(stage["facts"],FACT_KEYS[stage["name"]],"stage facts")
-        if (stage["name"] in PROCESS and stage["exit_code"] != 0) or (stage["name"] not in PROCESS and stage["exit_code"] is not None) or facts.get("timed_out") is True or facts.get("candidate_unchanged") is False: raise ValueError("passed stage")
+        if not hex64(stage["stored_stdout_sha256"]) or not hex64(stage["stored_stderr_sha256"]) or not all(nonnegative(stage[key]) for key in ("stored_stdout_bytes","stored_stderr_bytes","stdout_truncated_bytes","stderr_truncated_bytes")): raise ValueError("stage output")
+        if (stage["name"] in PROCESS and (type(stage["exit_code"]) is not int or stage["exit_code"] != 0)) or (stage["name"] not in PROCESS and stage["exit_code"] is not None) or facts.get("timed_out") is True or facts.get("candidate_unchanged") is False: raise ValueError("passed stage")
+        for key,value in facts.items():
+            if key in {"timed_out","candidate_unchanged"} and type(value) is not bool: raise ValueError("fact bool")
+            if key in {"sha256","sha256_a","sha256_b","source_sha256","canonical_sha256"} and not hex64(value): raise ValueError("fact digest")
+            if key in {"size_bytes","size_a","size_b","canonical_size_bytes"} and not nonnegative(value): raise ValueError("fact size")
+        if stage["name"] == "package_compare" and (facts["sha256_a"] != facts["sha256_b"] or facts["size_a"] != facts["size_b"]): raise ValueError("package comparison")
     preserved = {"sha256":app["archive"]["sha256"],"size_bytes":app["archive"]["size_bytes"]}; stage_facts = {stage["name"]:stage["facts"] for stage in receipt["stages"]}
-    if stage_facts["archive_preserve"] != preserved or stage_facts["package_compare"]["sha256_a"] != preserved["sha256"] or stage_facts["interaction_preserve"]["source_sha256"] != interaction["source_sha256"] or stage_facts["interaction_preserve"]["canonical_sha256"] != interaction["sha256"]: raise ValueError("preservation")
+    if stage_facts["archive_preserve"] != preserved or stage_facts["package_compare"] != {"sha256_a":preserved["sha256"],"sha256_b":preserved["sha256"],"size_a":preserved["size_bytes"],"size_b":preserved["size_bytes"]} or stage_facts["interaction_preserve"]["source_sha256"] != interaction["source_sha256"] or stage_facts["interaction_preserve"]["canonical_sha256"] != interaction["sha256"] or stage_facts["interaction_preserve"]["canonical_size_bytes"] != interaction["size_bytes"]: raise ValueError("preservation")
     receipt_interaction = {"schema":interaction["schema"],"source_member":interaction["source_member"],"source_sha256":interaction["source_sha256"],"canonical_sha256":interaction["sha256"],"canonical_size_bytes":interaction["size_bytes"],"operation_id":interaction["operation_id"]}
-    if receipt["interaction_contract"] != receipt_interaction or receipt["application_archive"] != preserved or receipt["verification_id"] != manifest["verification"]["verification_id"] or receipt["project_id"] != manifest["project"]["project_id"] or receipt["application_id"] != app["id"] or receipt["verified_at"] != manifest["verified_at"]: raise ValueError("receipt binding")
-    tool = manifest["toolchain"]
+    if receipt["interaction_contract"] != receipt_interaction or receipt["application_archive"] != preserved or receipt["verification_id"] != verification["verification_id"] or receipt["project_id"] != project["project_id"] or receipt["application_id"] != app["id"] or receipt["source"] != {key:source[key] for key in ("commit","tree","base_commit")} or receipt["status"] != "PASSED" or receipt["classification"] != "VERIFIED" or receipt["verified_at"] != manifest["verified_at"]: raise ValueError("receipt binding")
     if tool.get("release_binding_commit") != DEVKIT_COMMIT or tool.get("implementation_commit") != DEVKIT_SOURCE or tool.get("wheel_sha256") != WHEEL_SHA256 or tool.get("interaction_contract") != INTERACTION_SCHEMA: raise ValueError("manifest toolchain")
+    if receipt_tool != {"contract":app["contract"],"interaction_contract":interaction["schema"],"lock_digest":receipt_tool["lock_digest"],"release_binding_commit":tool["release_binding_commit"],"implementation_commit":tool["implementation_commit"],"authoring_bundle_sha256":tool["authoring_bundle"]["sha256"],"wheel_filename":tool["wheel_filename"],"wheel_sha256":tool["wheel_sha256"]}: raise ValueError("receipt toolchain")
     identity_object = {"schema":manifest["schema"],"project_id":manifest["project"]["project_id"],"application_id":app["id"],"source":manifest["source"],"application_archive_sha256":app["archive"]["sha256"],"application_descriptor_sha256":app["descriptor_sha256"],"interaction":{"schema":interaction["schema"],"source_sha256":interaction["source_sha256"],"canonical_sha256":interaction["sha256"],"operation_id":interaction["operation_id"]},"verification_receipt_sha256":manifest["verification"]["receipt"]["sha256"],"toolchain":{"release_binding_commit":tool["release_binding_commit"],"authoring_bundle_sha256":tool["authoring_bundle"]["sha256"],"wheel_sha256":tool["wheel_sha256"],"interaction_contract":tool["interaction_contract"]}}
     identity = digest(canonical(identity_object)); candidate_id = "rc_"+identity[:32]
     if manifest["identity_sha256"] != identity or manifest["release_candidate_id"] != candidate_id: raise ValueError("identity")

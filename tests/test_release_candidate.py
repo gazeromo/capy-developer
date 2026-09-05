@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -447,3 +448,16 @@ class ReleaseCandidateTests(unittest.TestCase):
                 self.core.release_candidates._preserve(payload, digest)
         self.assertEqual("RELEASE_CANDIDATE_INTEGRITY_FAILED", caught.exception.code)
         self.assertEqual(b"conflicting winner", destination.read_bytes())
+
+    @unittest.skipIf(os.name == "nt", "symlink creation is not guaranteed for Windows CI users")
+    def test_content_addressed_preserve_rejects_in_store_symlink_alias(self):
+        payload = b"expected candidate bytes"
+        digest = digest_bytes(payload)
+        digest_root = self.config.release_candidates_root / digest
+        digest_root.mkdir(parents=True)
+        alias = self.config.release_candidates_root / "mutable-candidate.capyrc"
+        alias.write_bytes(payload)
+        (digest_root / "candidate.capyrc").symlink_to(alias)
+        with self.assertRaises(DeveloperError) as caught:
+            self.core.release_candidates._preserve(payload, digest)
+        self.assertEqual("RELEASE_CANDIDATE_INTEGRITY_FAILED", caught.exception.code)

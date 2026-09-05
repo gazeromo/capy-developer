@@ -33,6 +33,41 @@ def inner_change(payload: bytes, member: str, mutate) -> bytes:
     values[member] = output.getvalue(); return ORACLE.outer(values)
 
 
+def rebuild_inner(payload: bytes, mutate) -> bytes:
+    source = io.BytesIO(payload); output = io.BytesIO()
+    with zipfile.ZipFile(source) as before, zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as after:
+        for info in before.infolist():
+            after.writestr(info, mutate(info.filename, before.read(info)))
+    return output.getvalue()
+
+
+def coherent_rebind(payload: bytes, *, interaction_mutate=None, receipt_mutate=None, manifest_mutate=None) -> bytes:
+    values = load(payload); manifest = json.loads(values[ORACLE.MEMBERS[0]]); receipt = json.loads(values[ORACLE.MEMBERS[3]])
+    if interaction_mutate is not None:
+        document = json.loads(values[ORACLE.MEMBERS[2]]); interaction_mutate(document); canonical = ORACLE.canonical(document)
+        application = rebuild_inner(values[ORACLE.MEMBERS[1]], lambda name,data: canonical if name == "interaction.json" else data)
+        values[ORACLE.MEMBERS[1]] = application; values[ORACLE.MEMBERS[2]] = canonical
+        archive = {"member":ORACLE.MEMBERS[1],"sha256":ORACLE.digest(application),"size_bytes":len(application)}
+        binding = manifest["application"]["interaction"]
+        binding.update({"source_sha256":ORACLE.digest(canonical),"sha256":ORACLE.digest(canonical),"size_bytes":len(canonical),"operation_id":document["operation"]["operation_id"],"schema":document["schema"]})
+        manifest["application"]["archive"] = archive
+        receipt["application_archive"] = {"sha256":archive["sha256"],"size_bytes":archive["size_bytes"]}
+        receipt["interaction_contract"] = {"schema":binding["schema"],"source_member":binding["source_member"],"source_sha256":binding["source_sha256"],"canonical_sha256":binding["sha256"],"canonical_size_bytes":binding["size_bytes"],"operation_id":binding["operation_id"]}
+        facts = {stage["name"]:stage["facts"] for stage in receipt["stages"]}
+        facts["package_compare"].update({"sha256_a":archive["sha256"],"sha256_b":archive["sha256"],"size_a":archive["size_bytes"],"size_b":archive["size_bytes"]})
+        facts["archive_preserve"].update({"sha256":archive["sha256"],"size_bytes":archive["size_bytes"]})
+        facts["interaction_preserve"].update({"source_sha256":binding["source_sha256"],"canonical_sha256":binding["sha256"],"canonical_size_bytes":binding["size_bytes"]})
+    if receipt_mutate is not None: receipt_mutate(receipt)
+    values[ORACLE.MEMBERS[3]] = ORACLE.canonical(receipt)
+    manifest["verification"]["receipt"].update({"sha256":ORACLE.digest(values[ORACLE.MEMBERS[3]]),"size_bytes":len(values[ORACLE.MEMBERS[3]])})
+    if manifest_mutate is not None: manifest_mutate(manifest)
+    app = manifest["application"]; interaction = app["interaction"]; tool = manifest["toolchain"]
+    identity_object = {"schema":manifest["schema"],"project_id":manifest["project"]["project_id"],"application_id":app["id"],"source":manifest["source"],"application_archive_sha256":app["archive"]["sha256"],"application_descriptor_sha256":app["descriptor_sha256"],"interaction":{"schema":interaction["schema"],"source_sha256":interaction["source_sha256"],"canonical_sha256":interaction["sha256"],"operation_id":interaction["operation_id"]},"verification_receipt_sha256":manifest["verification"]["receipt"]["sha256"],"toolchain":{"release_binding_commit":tool["release_binding_commit"],"authoring_bundle_sha256":tool["authoring_bundle"]["sha256"],"wheel_sha256":tool["wheel_sha256"],"interaction_contract":tool["interaction_contract"]}}
+    identity = ORACLE.digest(ORACLE.canonical(identity_object)); manifest["identity_sha256"] = identity; manifest["release_candidate_id"] = "rc_" + identity[:32]
+    values[ORACLE.MEMBERS[0]] = ORACLE.canonical(manifest)
+    return ORACLE.outer(values)
+
+
 def weaken_required_field(payload: bytes, interaction: str) -> bytes:
     values = load(payload)
     document = json.loads(values[interaction])
@@ -105,6 +140,12 @@ def cases(payload: bytes) -> dict[str, bytes]:
         "handoff_installation_performed": change_manifest("",lambda value:value["handoff"].__setitem__("installation","performed")),
         "handoff_publication_performed": change_manifest("",lambda value:value["handoff"].__setitem__("publication","performed")),
         "handoff_deployment_performed": change_manifest("",lambda value:value["handoff"].__setitem__("deployment","performed")),
+        "coherent_empty_title": coherent_rebind(payload,interaction_mutate=lambda value:value.__setitem__("title","")),
+        "coherent_failed_receipt": coherent_rebind(payload,receipt_mutate=lambda value:value.__setitem__("status","FAILED")),
+        "coherent_malformed_output_digest": coherent_rebind(payload,receipt_mutate=lambda value:value["stages"][0].__setitem__("stored_stdout_sha256","not-a-sha256")),
+        "coherent_negative_output_size": coherent_rebind(payload,receipt_mutate=lambda value:value["stages"][0].__setitem__("stored_stdout_bytes",-1)),
+        "coherent_manifest_local_path": coherent_rebind(payload,manifest_mutate=lambda value:value["application"]["archive"].__setitem__("local_path","/tmp/secret")),
+        "coherent_repository_kind": coherent_rebind(payload,manifest_mutate=lambda value:value["source"]["repository"].__setitem__("kind","bogus")),
     }
     return result
 

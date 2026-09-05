@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import os
+import re
 import shutil
 import stat
 import tempfile
@@ -93,6 +95,16 @@ def canonical_json(value: object) -> bytes:
 
 def digest_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def _read_candidate_bytes(path: Path) -> bytes:
+    try:
+        return read_regular_bytes(path)
+    except OSError as exc:
+        raise DeveloperError(
+            "RELEASE_CANDIDATE_INTEGRITY_FAILED",
+            "content-addressed candidate path is not a stable regular file",
+        ) from exc
 
 
 def _require_keys(value: object, keys: set[str], label: str) -> dict:
@@ -506,10 +518,18 @@ def _interaction_leaves(schema: dict, prefix: tuple[str, ...] = (), required: bo
         if schema.get("additionalProperties") is not False or not isinstance(schema.get("properties", {}), dict):
             raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction input object is not closed")
         required_names = schema.get("required", [])
-        if not isinstance(required_names, list):
+        properties = schema.get("properties", {})
+        if (
+            not isinstance(required_names, list)
+            or any(not isinstance(name, str) for name in required_names)
+            or len(set(required_names)) != len(required_names)
+            or not set(required_names) <= set(properties)
+        ):
             raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction requiredness is invalid")
         leaves: dict[str, tuple[dict, bool]] = {}
-        for name, child in schema.get("properties", {}).items():
+        for name, child in properties.items():
+            if re.fullmatch(r"[a-z][a-z0-9_]*", name) is None:
+                raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction input field name is invalid")
             leaves.update(_interaction_leaves(child, (*prefix, name), required and name in required_names))
         return leaves
     if schema.get("type") not in {"string", "integer", "number", "boolean"} or not prefix:
@@ -519,15 +539,87 @@ def _interaction_leaves(schema: dict, prefix: tuple[str, ...] = (), required: bo
 
 def _schema_accepts(value: object, schema: dict) -> bool:
     kind = schema.get("type")
+    if "enum" in schema and value not in schema["enum"]:
+        return False
     if kind == "string":
-        return isinstance(value, str) and ("enum" not in schema or value in schema["enum"])
+        return (
+            isinstance(value, str)
+            and len(value) >= schema.get("minLength", 0)
+            and len(value) <= schema.get("maxLength", len(value))
+            and ("pattern" not in schema or re.search(schema["pattern"], value) is not None)
+        )
     if kind == "boolean":
         return type(value) is bool
     if kind == "integer":
-        return type(value) is int
+        return type(value) is int and value >= schema.get("minimum", value) and value <= schema.get("maximum", value)
     if kind == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
+        valid = (
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+            and (not isinstance(value, float) or math.isfinite(value))
+        )
+        return bool(valid) and value >= schema.get("minimum", value) and value <= schema.get("maximum", value)
     return False
+
+
+def _interaction_text(value: object, maximum: int) -> bool:
+    return (
+        isinstance(value, str)
+        and 1 <= len(value) <= maximum
+        and value == value.strip()
+        and "\x00" not in value
+        and not any(0xD800 <= ord(character) <= 0xDFFF for character in value)
+    )
+
+
+def _interaction_text_list(value: object, maximum_items: int) -> bool:
+    return (
+        isinstance(value, list)
+        and 1 <= len(value) <= maximum_items
+        and all(_interaction_text(item, 500) for item in value)
+    )
+
+
+def _interaction_identifier(value: object) -> bool:
+    return isinstance(value, str) and len(value) <= 128 and APPLICATION_ID.fullmatch(value) is not None
+
+
+def _interaction_path(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) <= 256
+        and all(re.fullmatch(r"[a-z][a-z0-9_]*", segment) is not None for segment in value.split("."))
+    )
+
+
+def _interaction_artifact_name(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and 1 <= len(value) <= 120
+        and value not in {".", ".."}
+        and not value.startswith(".")
+        and "/" not in value
+        and "\\" not in value
+        and not any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value)
+    )
+
+
+def _interaction_object(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate interaction key")
+        result[key] = value
+    return result
+
+
+def _interaction_bounded(value: object, depth: int = 0) -> bool:
+    if depth > 16:
+        return False
+    if isinstance(value, dict):
+        return all(_interaction_bounded(child, depth + 1) for child in value.values())
+    if isinstance(value, list):
+        return all(_interaction_bounded(child, depth + 1) for child in value)
+    return not isinstance(value, float) or math.isfinite(value)
 
 
 def _result_path(schema: dict, dotted: str) -> dict | None:
@@ -541,26 +633,58 @@ def _result_path(schema: dict, dotted: str) -> dict | None:
 
 def _validate_interaction_contract(descriptor: dict, source: bytes, canonical: bytes) -> dict:
     try:
-        document = json.loads(source)
-    except (UnicodeError, json.JSONDecodeError) as exc:
+        document = json.loads(
+            source, object_pairs_hook=_interaction_object,
+            parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)),
+        )
+    except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "source interaction JSON is malformed") from exc
-    if canonical_json(document) != canonical:
+    if not source or len(source) > 64 * 1024 or not _interaction_bounded(document) or canonical_json(document) != canonical:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "source and canonical interaction contracts differ")
-    if set(document) != {"schema", "application_id", "title", "purpose", "not_for", "operation", "boundaries"}:
+    if not isinstance(document, dict) or set(document) != {"schema", "application_id", "title", "purpose", "not_for", "operation", "boundaries"}:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction top-level shape is invalid")
-    if document["schema"] != "capy.application-interaction/dev-v0" or document["application_id"] != descriptor.get("id"):
+    if (
+        document["schema"] != "capy.application-interaction/dev-v0"
+        or not _interaction_identifier(document["application_id"])
+        or document["application_id"] != descriptor.get("id")
+    ):
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction application identity is invalid")
     if descriptor.get("schema") != "capy.script/dev-v0" or descriptor.get("state_required") is not False or descriptor.get("connections") != [] or descriptor.get("side_effect") not in {"read_only", "artifact_generation"}:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction executable eligibility is invalid")
+    if (
+        not _interaction_text(document["title"], 120)
+        or not _interaction_text(document["purpose"], 1000)
+        or not _interaction_text_list(document["not_for"], 32)
+    ):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptive text is invalid")
     operation = document["operation"]
     operation_keys = {"operation_id", "title", "user_outcome", "description", "request_fields", "resource_fields", "examples", "common_misunderstandings", "result"}
-    if not isinstance(operation, dict) or set(operation) != operation_keys or not isinstance(operation.get("operation_id"), str):
+    if (
+        not isinstance(operation, dict) or set(operation) != operation_keys
+        or not _interaction_identifier(operation.get("operation_id"))
+        or not _interaction_text(operation.get("title"), 120)
+        or not _interaction_text(operation.get("user_outcome"), 500)
+        or not _interaction_text(operation.get("description"), 1000)
+        or not _interaction_text_list(operation.get("examples"), 16)
+        or not _interaction_text_list(operation.get("common_misunderstandings"), 16)
+    ):
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction operation shape is invalid")
     leaves = _interaction_leaves(descriptor.get("input_schema", {}))
     request_keys = {"field_id", "label", "description", "required", "input_kind", "safe_default", "examples", "clarification_question"}
     observed: set[str] = set()
-    for field in operation.get("request_fields", []):
-        if not isinstance(field, dict) or set(field) != request_keys or field.get("field_id") not in leaves or field["field_id"] in observed:
+    request_fields = operation.get("request_fields")
+    if not isinstance(request_fields, list) or len(request_fields) > 64:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction request fields are invalid")
+    for field in request_fields:
+        if (
+            not isinstance(field, dict) or set(field) != request_keys
+            or not _interaction_path(field.get("field_id"))
+            or field.get("field_id") not in leaves or field["field_id"] in observed
+            or not _interaction_text(field.get("label"), 120)
+            or not _interaction_text(field.get("description"), 1000)
+            or not _interaction_text_list(field.get("examples"), 16)
+            or not _interaction_text(field.get("clarification_question"), 500)
+        ):
             raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction request field coverage is invalid")
         observed.add(field["field_id"])
         rule, required = leaves[field["field_id"]]
@@ -575,8 +699,20 @@ def _validate_interaction_contract(descriptor: dict, source: bytes, canonical: b
     resources = {item["name"]: item for item in descriptor.get("resources", [])}
     resource_keys = {"slot", "label", "description", "required", "minimum_count", "maximum_count", "input_kind", "examples", "clarification_question"}
     observed_resources: set[str] = set()
-    for field in operation.get("resource_fields", []):
-        if not isinstance(field, dict) or set(field) != resource_keys or field.get("slot") not in resources or field["slot"] in observed_resources:
+    resource_fields = operation.get("resource_fields")
+    if not isinstance(resource_fields, list) or len(resource_fields) > 16:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction resource fields are invalid")
+    for field in resource_fields:
+        if (
+            not isinstance(field, dict) or set(field) != resource_keys
+            or not isinstance(field.get("slot"), str)
+            or re.fullmatch(r"[a-z][a-z0-9_]*", field["slot"]) is None
+            or field.get("slot") not in resources or field["slot"] in observed_resources
+            or not _interaction_text(field.get("label"), 120)
+            or not _interaction_text(field.get("description"), 1000)
+            or not _interaction_text_list(field.get("examples"), 16)
+            or not _interaction_text(field.get("clarification_question"), 500)
+        ):
             raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction resource field coverage is invalid")
         observed_resources.add(field["slot"])
         rule = resources[field["slot"]]
@@ -587,15 +723,34 @@ def _validate_interaction_contract(descriptor: dict, source: bytes, canonical: b
     result = operation.get("result")
     if not isinstance(result, dict) or set(result) != {"presentation", "facts", "artifacts"}:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction result shape is invalid")
+    if (
+        not isinstance(result["facts"], list) or len(result["facts"]) > 64
+        or not isinstance(result["artifacts"], list) or len(result["artifacts"]) > 32
+        or (not result["facts"] and not result["artifacts"])
+    ):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction result collection is invalid")
     fact_paths: set[str] = set()
     for fact in result["facts"]:
-        if not isinstance(fact, dict) or set(fact) != {"path", "label"} or fact.get("path") in fact_paths:
+        if (
+            not isinstance(fact, dict) or set(fact) != {"path", "label"}
+            or not _interaction_path(fact.get("path")) or fact.get("path") in fact_paths
+            or not _interaction_text(fact.get("label"), 120)
+        ):
             raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction result fact is invalid")
         fact_paths.add(fact["path"])
         node = _result_path(descriptor.get("result_schema", {}), fact["path"])
         if node is None or node.get("type") not in {"string", "integer", "number", "boolean"}:
             raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction result fact is unknown")
-    filenames = [item.get("filename") for item in result["artifacts"] if isinstance(item, dict) and set(item) == {"filename", "label"}]
+    filenames = []
+    for item in result["artifacts"]:
+        if (
+            not isinstance(item, dict) or set(item) != {"filename", "label"}
+            or not _interaction_artifact_name(item.get("filename"))
+            or item["filename"] in filenames
+            or not _interaction_text(item.get("label"), 120)
+        ):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction result artifact is invalid")
+        filenames.append(item["filename"])
     expected_node = descriptor.get("result_schema", {}).get("properties", {}).get("artifact_filenames", {})
     expected_files = expected_node.get("items", {}).get("enum") if expected_node.get("type") == "array" else None
     if descriptor["side_effect"] == "read_only" and filenames:
@@ -605,8 +760,21 @@ def _validate_interaction_contract(descriptor: dict, source: bytes, canonical: b
     if result.get("presentation") != ("artifact_result" if filenames else "facts"):
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction presentation is invalid")
     boundaries = document.get("boundaries")
-    if not isinstance(boundaries, list) or not boundaries or any(not isinstance(item, dict) or set(item) != {"boundary_id", "request_class", "explanation", "nearest_operation_ids"} or item["nearest_operation_ids"] != [operation["operation_id"]] for item in boundaries):
+    if not isinstance(boundaries, list) or not 1 <= len(boundaries) <= 32:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction boundaries are invalid")
+    boundary_ids = set()
+    for item in boundaries:
+        if (
+            not isinstance(item, dict) or set(item) != {"boundary_id", "request_class", "explanation", "nearest_operation_ids"}
+            or not _interaction_identifier(item.get("boundary_id")) or item["boundary_id"] in boundary_ids
+            or not _interaction_text(item.get("request_class"), 1000)
+            or not _interaction_text(item.get("explanation"), 1000)
+            or not isinstance(item.get("nearest_operation_ids"), list)
+            or not item["nearest_operation_ids"]
+            or any(value != operation["operation_id"] for value in item["nearest_operation_ids"])
+        ):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction boundary is invalid")
+        boundary_ids.add(item["boundary_id"])
     return {"schema": document["schema"], "operation_id": operation["operation_id"]}
 
 
@@ -638,13 +806,59 @@ def _validate_v1_bundle_bytes(payload: bytes) -> dict:
     _require_keys(manifest["source"], {"repository", "commit", "tree", "base_commit"}, "manifest source")
     _require_keys(manifest["source"]["repository"], {"kind", "public_identity", "identity_sha256"}, "manifest repository")
     _require_keys(manifest["toolchain"], {"release_binding_commit", "implementation_commit", "authoring_bundle", "wheel_filename", "wheel_sha256", "interaction_contract"}, "manifest toolchain")
+    _require_keys(manifest["toolchain"]["authoring_bundle"], {"member", "sha256", "size_bytes"}, "manifest authoring bundle")
     _require_keys(manifest["verification"], {"verification_id", "receipt"}, "manifest verification")
+    _require_keys(manifest["verification"]["receipt"], {"member", "sha256", "size_bytes"}, "manifest verification receipt")
     _require_keys(receipt["source"], {"commit", "tree", "base_commit"}, "receipt source")
     _require_keys(receipt["toolchain"], {"contract", "interaction_contract", "lock_digest", "release_binding_commit", "implementation_commit", "authoring_bundle_sha256", "wheel_filename", "wheel_sha256"}, "receipt toolchain")
     _require_keys(receipt["application_archive"], {"sha256", "size_bytes"}, "receipt application archive")
     app = manifest["application"]
     _require_keys(app, {"id", "contract", "descriptor_sha256", "archive", "interaction"}, "manifest application")
+    _require_keys(app["archive"], {"member", "sha256", "size_bytes"}, "manifest application archive")
     interaction_binding = _require_keys(app["interaction"], {"schema", "source_member", "source_sha256", "member", "sha256", "size_bytes", "operation_id"}, "manifest interaction")
+    repository_identity = manifest["source"]["repository"]
+    if (
+        repository_identity["kind"] not in {"local", "remote"}
+        or not isinstance(repository_identity["identity_sha256"], str)
+        or HEX64.fullmatch(repository_identity["identity_sha256"]) is None
+        or (repository_identity["kind"] == "local" and repository_identity["public_identity"] is not None)
+        or (
+            repository_identity["kind"] == "remote"
+            and (
+                not isinstance(repository_identity["public_identity"], str)
+                or not repository_identity["public_identity"].startswith("git://")
+                or "@" in repository_identity["public_identity"]
+                or digest_bytes(repository_identity["public_identity"].encode()) != repository_identity["identity_sha256"]
+            )
+        )
+    ):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 repository identity is invalid")
+    if (
+        PROJECT_ID.fullmatch(str(manifest["project"]["project_id"])) is None
+        or APPLICATION_ID.fullmatch(str(app["id"])) is None
+        or VERIFICATION_ID.fullmatch(str(manifest["verification"]["verification_id"])) is None
+        or SESSION_ID.fullmatch(str(receipt["session_id"])) is None
+        or any(HEX40.fullmatch(str(manifest["source"][key])) is None for key in ("commit", "tree", "base_commit"))
+        or any(HEX40.fullmatch(str(manifest["toolchain"][key])) is None for key in ("release_binding_commit", "implementation_commit"))
+        or any(
+            HEX64.fullmatch(str(value)) is None
+            for value in (
+                app["descriptor_sha256"], app["archive"]["sha256"], interaction_binding["source_sha256"],
+                interaction_binding["sha256"], manifest["toolchain"]["authoring_bundle"]["sha256"],
+                manifest["toolchain"]["wheel_sha256"], manifest["verification"]["receipt"]["sha256"],
+                receipt["toolchain"]["lock_digest"], receipt["application_archive"]["sha256"],
+            )
+        )
+        or any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in (
+                app["archive"]["size_bytes"], interaction_binding["size_bytes"],
+                manifest["toolchain"]["authoring_bundle"]["size_bytes"],
+                manifest["verification"]["receipt"]["size_bytes"], receipt["application_archive"]["size_bytes"],
+            )
+        )
+    ):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 identity field syntax is invalid")
     bindings = ((app["archive"], MEMBERS_V1[1]), (interaction_binding, MEMBERS_V1[2]), (manifest["verification"]["receipt"], MEMBERS_V1[3]), (manifest["toolchain"]["authoring_bundle"], MEMBERS_V1[4]))
     for binding, name in bindings:
         if binding.get("member") != name or binding.get("sha256") != digest_bytes(members[name]) or binding.get("size_bytes") != len(members[name]):
@@ -678,17 +892,29 @@ def _validate_v1_bundle_bytes(payload: bytes) -> dict:
     stage_keys = {"name", "status", "exit_code", "stored_stdout_sha256", "stored_stdout_bytes", "stored_stderr_sha256", "stored_stderr_bytes", "stdout_truncated_bytes", "stderr_truncated_bytes", "facts"}
     for stage in receipt["stages"]:
         _require_keys(stage, stage_keys, "verification receipt stage")
-        if stage["name"] in _PROCESS_STAGES and stage["exit_code"] != 0:
-            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 passed process stage is invalid")
-        if stage["name"] not in _PROCESS_STAGES and stage["exit_code"] is not None:
-            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 internal stage exit code is invalid")
+        exit_code = stage["exit_code"]
+        if (
+            not isinstance(stage["stored_stdout_sha256"], str)
+            or HEX64.fullmatch(stage["stored_stdout_sha256"]) is None
+            or not isinstance(stage["stored_stderr_sha256"], str)
+            or HEX64.fullmatch(stage["stored_stderr_sha256"]) is None
+            or (stage["name"] in _PROCESS_STAGES and (type(exit_code) is not int or exit_code != 0))
+            or (stage["name"] not in _PROCESS_STAGES and exit_code is not None)
+            or any(
+                not isinstance(stage[key], int) or isinstance(stage[key], bool) or stage[key] < 0
+                for key in ("stored_stdout_bytes", "stored_stderr_bytes", "stdout_truncated_bytes", "stderr_truncated_bytes")
+            )
+        ):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 stage output facts are invalid")
         _portable_facts(stage["name"], stage.get("facts"))
     facts = {stage["name"]: stage["facts"] for stage in receipt["stages"]}
     archive_fact = {"sha256": app["archive"]["sha256"], "size_bytes": app["archive"]["size_bytes"]}
     if (
         facts["archive_preserve"] != archive_fact
         or facts["package_compare"]["sha256_a"] != archive_fact["sha256"]
+        or facts["package_compare"]["sha256_b"] != archive_fact["sha256"]
         or facts["package_compare"]["size_a"] != archive_fact["size_bytes"]
+        or facts["package_compare"]["size_b"] != archive_fact["size_bytes"]
         or facts["interaction_preserve"]["source_sha256"] != interaction_binding["source_sha256"]
         or facts["interaction_preserve"]["canonical_sha256"] != interaction_binding["sha256"]
         or facts["interaction_preserve"]["canonical_size_bytes"] != interaction_binding["size_bytes"]
@@ -813,7 +1039,7 @@ class ReleaseCandidateService:
                 (attempt_root / "b.capyrc").write_bytes(bundle_b)
                 validation = validate_bundle_bytes(bundle_a)
                 destination = self._preserve(bundle_a, validation["bundle_sha256"])
-                durable = destination.read_bytes()
+                durable = _read_candidate_bytes(destination)
                 validate_bundle_bytes(durable)
                 self._ready(context, validation, destination)
             except DeveloperError as exc:
@@ -845,24 +1071,26 @@ class ReleaseCandidateService:
         discrepancy = None
         if candidate["status"] == "READY" and candidate.get("bundle_path"):
             try:
-                bundle_path = safe_resolve(
-                    Path(candidate["bundle_path"]), root=self.config.release_candidates_root
-                )
+                store_root = self.config.release_candidates_root.expanduser().absolute().resolve()
+                bundle_path = store_root / candidate["bundle_sha256"] / "candidate.capyrc"
+                if Path(candidate["bundle_path"]) != bundle_path:
+                    raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "durable candidate path is not content-addressed")
+                parent_status = bundle_path.parent.lstat()
+                if not stat.S_ISDIR(parent_status.st_mode) or stat.S_ISLNK(parent_status.st_mode):
+                    raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "durable candidate digest path is not a real directory")
+                durable_bytes = read_regular_bytes(bundle_path)
             except (DeveloperError, OSError, ValueError):
                 bundle_path = Path(candidate["bundle_path"])
                 current_state = "BUNDLE_INVALID"
                 discrepancy = {"code": "RELEASE_CANDIDATE_INTEGRITY_FAILED", "detail": "durable candidate path escapes its managed root"}
             if discrepancy is not None:
                 return self._result(candidate, current_state, discrepancy)
-            if not bundle_path.is_file():
-                current_state = "MISSING"
-                discrepancy = {"code": "RELEASE_CANDIDATE_INTEGRITY_FAILED", "detail": "durable candidate bundle is missing"}
-            elif sha256_file(bundle_path) != candidate["bundle_sha256"] or bundle_path.stat().st_size != candidate["bundle_size_bytes"]:
+            if digest_bytes(durable_bytes) != candidate["bundle_sha256"] or len(durable_bytes) != candidate["bundle_size_bytes"]:
                 current_state = "DIGEST_MISMATCH"
                 discrepancy = {"code": "RELEASE_CANDIDATE_INTEGRITY_FAILED", "detail": "durable candidate bundle digest or size differs"}
             else:
                 try:
-                    validation = validate_bundle_bytes(bundle_path.read_bytes())
+                    validation = validate_bundle_bytes(durable_bytes)
                     if validation["release_candidate_id"] != release_candidate_id:
                         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "durable candidate identity differs")
                     current_state = "AVAILABLE"
@@ -1242,13 +1470,16 @@ class ReleaseCandidateService:
             raise DeveloperError("RELEASE_CANDIDATE_CLEANUP_FAILED", "candidate attempt path remains")
 
     def _preserve(self, payload: bytes, digest: str) -> Path:
-        destination = safe_resolve(
-            self.config.release_candidates_root / digest / "candidate.capyrc",
-            root=self.config.release_candidates_root,
-        )
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        store_root = self.config.release_candidates_root.expanduser().absolute().resolve()
+        digest_root = store_root / digest
+        destination = digest_root / "candidate.capyrc"
+        store_root.mkdir(parents=True, exist_ok=True)
+        digest_root.mkdir(exist_ok=True)
+        parent_status = digest_root.lstat()
+        if not stat.S_ISDIR(parent_status.st_mode) or stat.S_ISLNK(parent_status.st_mode):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate digest path is not a real directory")
         if destination.exists():
-            if sha256_file(destination) != digest or destination.read_bytes() != payload:
+            if _read_candidate_bytes(destination) != payload:
                 raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "content-addressed candidate path contains conflicting bytes")
             return destination
         descriptor, temporary_name = tempfile.mkstemp(prefix="candidate-", suffix=".tmp", dir=destination.parent)
@@ -1262,7 +1493,7 @@ class ReleaseCandidateService:
                 os.link(temporary, destination)
             except FileExistsError:
                 pass
-            if sha256_file(destination) != digest or destination.read_bytes() != payload:
+            if _read_candidate_bytes(destination) != payload:
                 raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "content-addressed candidate path contains conflicting bytes")
         finally:
             temporary.unlink(missing_ok=True)
