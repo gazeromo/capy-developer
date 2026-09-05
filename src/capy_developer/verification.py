@@ -628,12 +628,10 @@ class VerificationService:
             destination = digest_root / "interaction.json"
             if passed:
                 root.mkdir(parents=True, exist_ok=True)
-                try:
-                    digest_status = digest_root.lstat()
-                    if not stat.S_ISDIR(digest_status.st_mode) or stat.S_ISLNK(digest_status.st_mode):
-                        passed = False
-                except FileNotFoundError:
-                    digest_root.mkdir()
+                digest_root.mkdir(exist_ok=True)
+                digest_status = digest_root.lstat()
+                if not stat.S_ISDIR(digest_status.st_mode) or stat.S_ISLNK(digest_status.st_mode):
+                    passed = False
                 if destination.is_symlink() or (destination.exists() and not destination.is_file()):
                     passed = False
                 elif destination.exists() and read_regular_bytes(destination) != canonical:

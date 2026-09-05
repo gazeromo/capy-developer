@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -415,8 +417,20 @@ class VerificationTests(unittest.TestCase):
         first, first_workspace = self.start("parallel-a")
         second, second_workspace = self.start("parallel-b")
         payloads = [self.payload(first, first_workspace, "parallel-verify-a"), self.payload(second, second_workspace, "parallel-verify-b")]
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            results = list(executor.map(self.core.verify_development, payloads))
+        interaction = json.loads((first_workspace / "interaction.json").read_bytes())
+        canonical = json.dumps(interaction, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        digest_root = self.config.verification_interactions_root.resolve() / hashlib.sha256(canonical).hexdigest()
+        barrier = threading.Barrier(2)
+        original_mkdir = Path.mkdir
+
+        def synchronized_mkdir(path, *args, **kwargs):
+            if path == digest_root:
+                barrier.wait(timeout=30)
+            return original_mkdir(path, *args, **kwargs)
+
+        with mock.patch("pathlib.Path.mkdir", new=synchronized_mkdir):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(self.core.verify_development, payloads))
         self.assertEqual(["PASSED", "PASSED"], [item["status"] for item in results])
         self.assertNotEqual(results[0]["verification_id"], results[1]["verification_id"])
 
