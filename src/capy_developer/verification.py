@@ -619,30 +619,39 @@ class VerificationService:
             and canonical_sha256 == initial["canonical_sha256"]
             and canonical == initial["canonical"]
         )
-        destination = safe_resolve(
-            self.config.verification_interactions_root / canonical_sha256 / "interaction.json",
-            root=self.config.verification_interactions_root,
-        )
-        if passed:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            if destination.exists() and destination.read_bytes() != canonical:
-                passed = False
-            elif not destination.exists():
-                descriptor, temporary_name = tempfile.mkstemp(
-                    prefix="interaction-", suffix=".tmp", dir=destination.parent
-                )
-                temporary = Path(temporary_name)
-                try:
-                    with os.fdopen(descriptor, "wb") as stream:
-                        stream.write(canonical)
-                    try:
-                        os.link(temporary, destination)
-                    except FileExistsError:
-                        pass
-                finally:
-                    temporary.unlink(missing_ok=True)
-                if destination.read_bytes() != canonical:
+        destination = None
+        try:
+            destination = safe_resolve(
+                self.config.verification_interactions_root / canonical_sha256 / "interaction.json",
+                root=self.config.verification_interactions_root,
+            )
+            if passed:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if destination.is_symlink() or (destination.exists() and not destination.is_file()):
                     passed = False
+                elif destination.exists() and destination.read_bytes() != canonical:
+                    passed = False
+                elif not destination.exists():
+                    descriptor, temporary_name = tempfile.mkstemp(
+                        prefix="interaction-", suffix=".tmp", dir=destination.parent
+                    )
+                    temporary = Path(temporary_name)
+                    try:
+                        with os.fdopen(descriptor, "wb") as stream:
+                            stream.write(canonical)
+                        try:
+                            os.link(temporary, destination)
+                        except FileExistsError:
+                            pass
+                    finally:
+                        temporary.unlink(missing_ok=True)
+                    if (
+                        destination.is_symlink() or not destination.is_file()
+                        or destination.read_bytes() != canonical
+                    ):
+                        passed = False
+        except (OSError, DeveloperError):
+            passed = False
         self._record_process(
             verification_id, "interaction_preserve", result, passed,
             facts={
@@ -655,6 +664,7 @@ class VerificationService:
         if not passed:
             self._fail_remaining(verification_id, "interaction_preserve", "INTERACTION_CONTRACT_FAILED")
             return False
+        assert destination is not None
         with self.db.connect() as db:
             db.execute(
                 """INSERT INTO verification_interactions VALUES (?,?,?,?,?,?,?,?,?)""",

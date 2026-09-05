@@ -147,6 +147,25 @@ class InteractionV1Tests(unittest.TestCase):
         with self.core.db.connect() as db:
             self.assertEqual(0, db.execute("SELECT count(*) FROM release_candidates").fetchone()[0])
 
+    def test_conflicting_interaction_preservation_path_is_causal_failure(self):
+        session, workspace = self.start()
+        document = json.loads((workspace / "interaction.json").read_bytes())
+        canonical = json.dumps(
+            document, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+        digest = hashlib.sha256(canonical).hexdigest()
+        conflict = self.config.verification_interactions_root / digest / "interaction.json"
+        conflict.mkdir(parents=True)
+        result = self.verify(session, workspace)
+        self.assertEqual(
+            ("FAILED", "INTERACTION_CONTRACT_FAILED"),
+            (result["status"], result["classification"]),
+        )
+        failed = [stage for stage in result["stages"] if stage["status"] == "FAILED"]
+        self.assertEqual(["interaction_preserve"], [stage["name"] for stage in failed])
+        with self.core.db.connect() as db:
+            self.assertEqual(0, db.execute("SELECT count(*) FROM verification_interactions").fetchone()[0])
+
     def test_v1_candidate_uses_durable_verified_bytes_after_current_source_drifts(self):
         session, workspace = self.start()
         verification = self.verify(session, workspace)
