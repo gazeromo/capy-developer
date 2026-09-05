@@ -1,0 +1,15 @@
+{
+  "bundle_sha256": "188c9498712d262b41b9305807437b51e6eb436b20f0d677e257989be9ce5a6f",
+  "bundle_size_bytes": 45454,
+  "identity_sha256": "396fc7356745fa6924a669749bc48b4bce1f44b3152d6b989970f6afd1cabc9f",
+  "manifest_sha256": "9430b3c8a3f17676523ff719e474303f4c7e1d85a5f59b4157098045d477a0eb",
+  "members": {
+    "RELEASE-CANDIDATE.json": {"sha256": "9430b3c8a3f17676523ff719e474303f4c7e1d85a5f59b4157098045d477a0eb", "size_bytes": 2426},
+    "application/application.zip": {"sha256": "7541b3a7478010d82aef3cd3dafd5c0592c0a4725c5c18ee6a3d772a8ed6ebf5", "size_bytes": 3383},
+    "application/interaction.json": {"sha256": "8b8a9d52b3e2fececf014d67e593356f01cdf8a4afe3187de4c4929581b99689", "size_bytes": 887},
+    "evidence/verification.json": {"sha256": "781b70199cb172c93b66e57486fe1ab6cab7294f6b5cedb01fcda7bfa6fc0052", "size_bytes": 6254},
+    "toolchain/authoring-bundle.zip": {"sha256": "12e492ec2dce11b4227d10bdf9385705a60bc12a88fec0073ff48a87b2a57a57", "size_bytes": 31836}
+  },
+  "release_candidate_id": "rc_396fc7356745fa6924a669749bc48b4b",
+  "schema": "capy.development-interaction-format-vector/v1"
+}

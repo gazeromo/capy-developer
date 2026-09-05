@@ -1266,7 +1266,7 @@ class ReleaseCandidateService:
             db.execute("BEGIN IMMEDIATE")
             db.execute("DELETE FROM release_candidate_members WHERE release_candidate_id=?", (candidate_id,))
             payloads = (
-                ((MEMBERS_V1[1], context["application_bytes"]), (MEMBERS_V1[2], context["interaction_bytes"]),
+                ((MEMBERS_V1[0], context["manifest_bytes"]), (MEMBERS_V1[1], context["application_bytes"]), (MEMBERS_V1[2], context["interaction_bytes"]),
                  (MEMBERS_V1[3], context["receipt_bytes"]), (MEMBERS_V1[4], context["toolchain_bytes"]))
                 if context["members"] == MEMBERS_V1 else
                 ((MEMBERS[1], context["application_bytes"]), (MEMBERS[2], context["receipt_bytes"]), (MEMBERS[3], context["toolchain_bytes"]))
@@ -1331,6 +1331,10 @@ class ReleaseCandidateService:
                     "SELECT * FROM release_candidate_interactions WHERE release_candidate_id=?",
                     (candidate["release_candidate_id"],),
                 ).fetchone()
+                member_rows = db.execute(
+                    "SELECT member_path,sha256,size_bytes FROM release_candidate_members WHERE release_candidate_id=? ORDER BY member_path",
+                    (candidate["release_candidate_id"],),
+                ).fetchall()
             interaction = dict(row) if row is not None else None
             result["format_schema"] = MANIFEST_SCHEMA_V1
             result["application"]["interaction"] = None if interaction is None else {
@@ -1340,4 +1344,5 @@ class ReleaseCandidateService:
                 "canonical_size_bytes": interaction["canonical_size_bytes"], "operation_id": interaction["operation_id"],
             }
             result["handoff"] = json.loads(candidate["manifest_json"])["handoff"]
+            result["members"] = [dict(item) for item in member_rows]
         return result

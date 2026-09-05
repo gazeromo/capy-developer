@@ -7,6 +7,9 @@ import sqlite3
 import tempfile
 import unittest
 import zipfile
+import hashlib
+import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import url2pathname
@@ -83,6 +86,7 @@ class InteractionV1Tests(unittest.TestCase):
         self.assertNotIn("path", json.dumps(verification["interaction_contract"]))
         created = self.core.create_release_candidate(verification["verification_id"])
         self.assertEqual("capy.development-release-candidate-result/v1", created["schema"])
+        self.assertEqual(set(MEMBERS_V1), {item["member_path"] for item in created["members"]})
         candidate_path = file_path(created["bundle"]["path_uri"])
         with zipfile.ZipFile(candidate_path) as archive:
             self.assertEqual(list(MEMBERS_V1), archive.namelist())
@@ -143,6 +147,16 @@ class InteractionV1Tests(unittest.TestCase):
         with self.core.db.connect() as db:
             self.assertEqual(0, db.execute("SELECT count(*) FROM release_candidates").fetchone()[0])
 
+    def test_v1_candidate_uses_durable_verified_bytes_after_current_source_drifts(self):
+        session, workspace = self.start()
+        verification = self.verify(session, workspace)
+        verified_source = verification["interaction_contract"]["source_sha256"]
+        (workspace / "interaction.json").write_text("changed after verification\n", encoding="utf-8")
+        self.assertEqual("STALE", self.core.inspect_development(session["session_id"])["verification"]["current_head_state"])
+        created = self.core.create_release_candidate(verification["verification_id"])
+        self.assertTrue(created["ok"])
+        self.assertEqual(verified_source, created["application"]["interaction"]["source_sha256"])
+
     def test_schema_three_fixture_migrates_without_reinterpreting_v0(self):
         source = Path(__file__).parents[1] / "campaigns/developer_interaction_contract_v0/fixtures/schema-3.db"
         candidate = Path(__file__).parents[1] / "campaigns/developer_interaction_contract_v0/fixtures/accepted-v0.capyrc"
@@ -164,6 +178,22 @@ class InteractionV1Tests(unittest.TestCase):
         checked = validate_bundle_bytes(candidate.read_bytes())
         self.assertEqual("capy.application-release-candidate/v0", checked["manifest"]["schema"])
         self.assertEqual("fab0d9e9a244af2b21da15e9f09d91dd5195be05d907eeddd4e9feae3b94b983", checked["bundle_sha256"])
+
+    def test_frozen_cross_platform_format_vector_and_independent_oracle(self):
+        campaign = Path(__file__).parents[1] / "campaigns/developer_interaction_contract_v0"
+        vector = json.loads((campaign / "FORMAT-VECTOR.json").read_bytes())
+        candidate = campaign / "fixtures/fixed-v1.capyrc"
+        self.assertEqual(vector["bundle_sha256"], hashlib.sha256(candidate.read_bytes()).hexdigest())
+        self.assertEqual(vector["bundle_size_bytes"], candidate.stat().st_size)
+        checked = validate_bundle_bytes(candidate.read_bytes())
+        self.assertEqual(vector["release_candidate_id"], checked["release_candidate_id"])
+        oracle = subprocess.run([sys.executable, str(campaign / "ORACLE.py"), str(candidate)], cwd=self.root, text=True, capture_output=True)
+        self.assertEqual(0, oracle.returncode, oracle.stdout + oracle.stderr)
+        self.assertEqual("accepted", json.loads(oracle.stdout)["status"])
+        matrix = subprocess.run([sys.executable, str(campaign / "tamper_matrix.py"), str(candidate)], cwd=self.root, text=True, capture_output=True)
+        self.assertEqual(0, matrix.returncode, matrix.stdout + matrix.stderr)
+        facts = json.loads(matrix.stdout)
+        self.assertEqual((43, 43, []), (facts["cases"], facts["rejected"], facts["unexpected_accepts"]))
 
 
 if __name__ == "__main__":
