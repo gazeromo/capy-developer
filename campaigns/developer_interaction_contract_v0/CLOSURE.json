@@ -1,0 +1,96 @@
+{
+  "schema": "capy.developer-interaction-contract-closure/v1",
+  "status": "accepted-for-final-closure-commit",
+  "closed_at": "2026-09-05T07:09:21Z",
+  "repository": "gazeromo/capy-developer",
+  "repository_visibility": "public",
+  "base_commit": "5a950b1a1b73ce6f99018261f0846bda2f3a5fea",
+  "implementation": {
+    "commit": "5b4c40f062f73dcbf1b8d58ae0eb0cdcf63476bc",
+    "tree": "ed492e239c960b50ca2beb02dafe870071030c26",
+    "test_harness_commit": "13a4594361fac626cdb30fdcba1e7d8b6f4c8171",
+    "test_harness_tree": "f3add7d2c186471a969c5852f0041bb0fc99ecaa",
+    "ci_run_id": 33950502365,
+    "ci_url": "https://github.com/gazeromo/capy-developer/actions/runs/33950502365",
+    "ci_conclusion": "success",
+    "tests_per_platform": 110,
+    "platforms": ["ubuntu-latest", "macos-latest", "windows-latest"]
+  },
+  "evidence": {
+    "commit": "4981fea02e3adb537a227110232bcb87981e8fa6",
+    "tree": "5ee961b2e21092690cad9ff79ba6bce565d22ff2",
+    "ci_run_id": 33951139743,
+    "ci_url": "https://github.com/gazeromo/capy-developer/actions/runs/33951139743",
+    "ci_conclusion": "success",
+    "tests_per_platform": 110,
+    "platforms": ["ubuntu-latest", "macos-latest", "windows-latest"]
+  },
+  "package": {
+    "version": "0.4.0",
+    "filename": "capy_developer-0.4.0-py3-none-any.whl",
+    "sha256": "99264d02561180d44c002dfe3a71d02c54c70c48036b34d1fadbbd0d4df11de2",
+    "size_bytes": 140523,
+    "reproducible_builds": 2,
+    "fresh_offline_install": "passed",
+    "published_or_deployed": false
+  },
+  "journey_a": {
+    "release_candidate_id": "rc_72b7b50439b76fc2e5b884a773c0941a",
+    "identity_sha256": "72b7b50439b76fc2e5b884a773c0941a5bec9cec232ddfb95921fe278bac93f8",
+    "manifest_sha256": "aaa1934047c7ed807587048dde771c48c6309ac38166c6aae9fffeebc06d6143",
+    "bundle_sha256": "df850b7eecb6e4ef217d9670d39f0bd575ae5c8b5c743f427a8d2dbfe4960324",
+    "bundle_size_bytes": 47047,
+    "verification_stages": "11/11 passed",
+    "oracle": "accepted",
+    "tamper_matrix": "57/57 rejected"
+  },
+  "journey_b": {
+    "release_candidate_id": "rc_5816a2589660294147a03238a901e59c",
+    "identity_sha256": "5816a2589660294147a03238a901e59c79bfc6fddac5306dc3bf35c104bc4282",
+    "manifest_sha256": "fb174996b83abd3de3dd344862db2120566473f8d4f5842bee94b52c741d029d",
+    "bundle_sha256": "980b16cc9f06b2176afe1bf02fbc5b85561f08a9584f2eea2c0137472174ebfa",
+    "bundle_size_bytes": 46977,
+    "verification_stages": "11/11 passed",
+    "oracle": "accepted",
+    "tamper_matrix": "57/57 rejected"
+  },
+  "fixed_vectors": {
+    "fixed_v1_identity_sha256": "396fc7356745fa6924a669749bc48b4bce1f44b3152d6b989970f6afd1cabc9f",
+    "artifact_v1_identity_sha256": "46baebb30eeab8e56ec00c8be20f1c9b392a7bd93c9bb02f15e545cf92991c8d",
+    "historical_v0_identity_sha256": "fd50b8536d1ca9fda3260e7e0e0416ca37afaa5ac24313a18eee67409a75fe00"
+  },
+  "reviews": {
+    "review_c": "ACCEPT; zero P0-P3",
+    "review_d": "ACCEPT; zero P0-P3",
+    "supplemental_windows_containment_review": "ACCEPT; zero P0-P3",
+    "review_e": "pending against this closure commit"
+  },
+  "receipts": {
+    "qualification_sha256": "f027c3e48de5f9074112182eebdb86d407fdfe0c9231a85ede941d731ddd7e99",
+    "journey_a_sha256": "a3d74ddc0cbd049d507d8245ad1b2b8a675b4963698ceac8aafd22d6f36ee914",
+    "journey_b_sha256": "ee06de5efc5ac975ff1baff772111e4af47e4093772b98a18b38a6511340219e",
+    "historical_v0_sha256": "09a1e50c22df44e78dfd2e02717d849ca7350ad6cdff70fc87699c688de892bf",
+    "oracle_sha256": "c57f331e0927b119e625c573a6d752d2fd090e4e81cc52377865d07054b5ded9",
+    "oracle_tamper_matrix_sha256": "ac60791920fc29ccaaab0e0f4f54caf1ec5440e57499f0bf2917c56f06c5661a",
+    "package_release_sha256": "abe28ff7c4f3af2516cb9b8d978d5deda5e3690237933e2155c754d58ab3f9a4",
+    "reviews_sha256": "48df2ff76b89fbd06f776b9a74de0c1290b4677efbca1fdc6496d2534d5fefa4"
+  },
+  "boundary": {
+    "application_repositories_changed": 0,
+    "runtime_changed": 0,
+    "production_changed": 0,
+    "provider_calls": 0,
+    "provider_secrets_accessed": 0,
+    "acceptance_publication_installation_binding_deployment": 0,
+    "repository_visibility_changes": 1
+  },
+  "deviations": [
+    "The owner authorized changing gazeromo/capy-developer from private to public after a zero-finding secret audit; its proprietary license and history remain unchanged.",
+    "Private-repository billing initially prevented hosted CI from starting; public standard runners required no payment method.",
+    "Evidence-head Windows CI exposed an intermittent extended-path-prefix comparison defect, repaired and independently accepted at 5b4c40f062f73dcbf1b8d58ae0eb0cdcf63476bc.",
+    "Two preliminary journey invocations reached the local default Developer catalog because isolation variables were missing or misspelled. The exact prior semantic schema-3 database was restored after each with integrity OK and recoverable backups; no runtime or production state was involved."
+  ],
+  "remaining_blockers": [],
+  "merge_policy": "After independent read-only Review E accepts this closure-only commit, strictly fast-forward main, then require exact post-merge CI on Ubuntu, macOS, and Windows.",
+  "deployment_authorized": false
+}
