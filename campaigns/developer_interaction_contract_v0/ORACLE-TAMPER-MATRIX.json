@@ -1,0 +1,16 @@
+{
+  "schema": "capy.development-release-candidate-tamper-matrix/v1",
+  "status": "passed",
+  "control": "fixtures/artifact-v1.capyrc",
+  "valid_control": "accepted",
+  "cases": 57,
+  "rejected_by_standalone_oracle": 57,
+  "rejected_by_production_validator": 57,
+  "unexpected_accepts": [],
+  "positive_boundaries": {
+    "receipt_exactly_1_mib": "accepted by both validators",
+    "artifact_filename_128_characters": "accepted by both validators",
+    "application_archive_exactly_64_mib": "accepted by both validators",
+    "maximum_text_list_and_boundary_counts": "accepted by both validators"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "capy.development-interaction-historical-v0-evidence/v1",
+  "status": "passed",
+  "fixture": "fixtures/accepted-v0.capyrc",
+  "release_candidate_id": "rc_fd50b8536d1ca9fda3260e7e0416ca",
+  "identity_sha256": "fd50b8536d1ca9fda3260e7e0416ca37afaa5ac24313a18eee67409a75fe00",
+  "manifest_sha256": "785dd69af3dd03bdffb16d229112c8954b0bba8830e38bb844bd71777c4bf617",
+  "bundle_sha256": "fab0d9e9a244af2b21da15e9f09d91dd5195be05d907eeddd4e9feae3b94b983",
+  "bundle_size_bytes": 33499,
+  "production_validator_from_installed_0_4_0": "accepted",
+  "historical_standalone_oracle": "accepted",
+  "schema_3_migration_fixture": "passed without reinterpretation",
+  "historical_release_mutations": 0
+}

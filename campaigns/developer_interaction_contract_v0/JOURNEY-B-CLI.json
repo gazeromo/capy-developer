@@ -1,0 +1,47 @@
+{
+  "schema": "capy.development-interaction-journey-evidence/v1",
+  "journey": "B",
+  "status": "passed",
+  "adapter": "installed-wheel-json-cli",
+  "implementation_commit": "7060bc9b96092645cd273364ab9ad5eaebe69753",
+  "package": {
+    "version": "0.4.0",
+    "filename": "capy_developer-0.4.0-py3-none-any.whl",
+    "sha256": "8a6f9c9c51c93e6f7e43403a2078db9f7f2b63ecf3dfa127c43f5cad0ed5094e",
+    "size_bytes": 140378,
+    "offline_install": true
+  },
+  "project_id": "prj_80b7567f918347f692807feb715130de",
+  "session_id": "ses_1b37dfdc829742ae934522f16a5420c1",
+  "failure": {
+    "verification_id": "ver_7428c75afe6547f5ab14585e75a80272",
+    "status": "FAILED",
+    "classification": "INTERACTION_CONTRACT_FAILED",
+    "failed_stage": "interaction_check",
+    "diagnostic": "INTERACTION_REQUIRED_MISMATCH: text",
+    "release_candidate_files": 0
+  },
+  "passing_verification_id": "ver_01e397fc662a41009807be7e06b2282d",
+  "candidate_commit": "096246b4d004c6f6307953a805720f30e46805d0",
+  "candidate_tree": "ffc8442501f6862c839532ceae8ce41ebc421373",
+  "release_candidate_id": "rc_414cd986d5f5ee13dc04261c34ab3b11",
+  "identity_sha256": "414cd986d5f5ee13dc04261c34ab3b11a2e5b476ef362b4945bdd91d57341430",
+  "manifest_sha256": "0c09dea87471ffb3c56cb979c02f3da624304232a2efe8a7f7d29907c0b901ca",
+  "application_archive_sha256": "4e8cad2269f2b6039c017ee4325df83d4a593aae21b39ad744761e95ba11cd29",
+  "interaction_sha256": "b0adb363c98e0006635a2a1789ebb82039fce6283bcd6232f136ab47a9f2f62f",
+  "verification_receipt_sha256": "9ee069769d4e4d47ca42fc23e3f5aeab1428e6c511fb2dc14de3f3121ab6f772",
+  "bundle_sha256": "44bdde127dd6b14ac8e208af42431439fa10b221f2cacfbd92da0fc84cf24876",
+  "bundle_size_bytes": 46978,
+  "verification_stages": {"passed": 11, "total": 11},
+  "copied_byte_oracle": "accepted",
+  "tamper_matrix": {"cases": 57, "rejected": 57, "unexpected_accepts": 0},
+  "restart_inspect_exact": true,
+  "restart_bundle_bytes_exact": true,
+  "session_completed_clean": true,
+  "provider_calls": 0,
+  "deviations": [
+    "One preliminary installed doctor invocation used the default local Developer root before isolation variables were set. The catalog was restored to semantic schema 3 with its original row counts and integrity OK; newly created V1 directories and cache bytes were moved to a recoverable temporary quarantine.",
+    "A preliminary verification used a path longer than the locked DevKit limit and failed internally before the final fresh causal journey used a short isolated root.",
+    "A preliminary oracle invocation used a system Python without tomllib; the copied-byte oracle then passed under the isolated Python without importing Capy Developer."
+  ]
+}

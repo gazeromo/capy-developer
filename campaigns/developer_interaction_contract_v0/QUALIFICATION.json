@@ -1,0 +1,66 @@
+{
+  "schema": "capy.development-interaction-qualification/v1",
+  "status": "qualified",
+  "recorded_at": "2026-09-05T06:06:01Z",
+  "repository": "gazeromo/capy-developer",
+  "branch": "codex/developer-interaction-contract-v0",
+  "base_commit": "5a950b1a1b73ce6f99018261f0846bda2f3a5fea",
+  "base_tree": "efdd8a1239dcf46397a4e0ac6a4c90f7d549991e",
+  "implementation_commit": "7060bc9b96092645cd273364ab9ad5eaebe69753",
+  "implementation_tree": "7d532cd1a40d6d8a65c64090b1c3a43a1fbecb9e",
+  "implementation_remote_head": "7060bc9b96092645cd273364ab9ad5eaebe69753",
+  "sqlite_schema_version": 4,
+  "schemas": {
+    "toolchain_lock": "capy.toolchain-lock/v1",
+    "interaction": "capy.application-interaction/dev-v0",
+    "verification_pipeline": "capy.development-verification-pipeline/v1",
+    "verification_result": "capy.development-verification-result/v1",
+    "release_candidate_manifest": "capy.application-release-candidate/v1",
+    "release_candidate_result": "capy.development-release-candidate-result/v1",
+    "verification_receipt": "capy.development-verification-receipt/v1"
+  },
+  "local_tests": {"passed": 109, "failed": 0, "duration_seconds": 236.299},
+  "cross_platform_ci": {
+    "run_id": 33946862213,
+    "attempt": 3,
+    "url": "https://github.com/gazeromo/capy-developer/actions/runs/33946862213",
+    "head_sha": "7060bc9b96092645cd273364ab9ad5eaebe69753",
+    "conclusion": "success",
+    "ubuntu": "success",
+    "macos": "success",
+    "windows": "success",
+    "repository_visibility": "public",
+    "billing_resolution": "Standard GitHub-hosted runners started after the owner authorized public repository visibility; no payment method or paid budget was added."
+  },
+  "journey_a": "passed; installed-wheel MCP; 11/11; oracle accepted; 57/57 tamper rejection; restart exact; completed clean",
+  "journey_b": "passed; installed-wheel JSON CLI causal failure/repair; 11/11; oracle accepted; 57/57 tamper rejection; restart exact; completed clean",
+  "historical_v0": "accepted by installed production validator and historical oracle",
+  "package": {
+    "version": "0.4.0",
+    "filename": "capy_developer-0.4.0-py3-none-any.whl",
+    "sha256": "8a6f9c9c51c93e6f7e43403a2078db9f7f2b63ecf3dfa127c43f5cad0ed5094e",
+    "size_bytes": 140378,
+    "reproducible_builds": 2,
+    "offline_install": "passed"
+  },
+  "reviews": {
+    "review_c": "ACCEPT at exact implementation commit; zero P0-P3",
+    "review_d": "ACCEPT at exact implementation commit; zero P0-P3"
+  },
+  "boundary_zero_counts": {
+    "runtime_changes": 0,
+    "production_changes": 0,
+    "protected_application_changes": 0,
+    "provider_calls": 0,
+    "provider_secrets": 0,
+    "acceptance": 0,
+    "publication": 0,
+    "installation": 0,
+    "binding": 0,
+    "deployment": 0,
+    "historical_release_mutations": 0,
+    "codex_specific_core_behavior": 0,
+    "mcp_cli_semantic_differences": 0
+  },
+  "remaining_blockers": []
+}

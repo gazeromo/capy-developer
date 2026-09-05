@@ -1,0 +1,24 @@
+{
+  "schema": "capy.development-interaction-oracle-evidence/v1",
+  "status": "passed",
+  "validator": "ORACLE.py",
+  "dependencies": "Python standard library only",
+  "fixed_vector": {
+    "release_candidate_id": "rc_396fc7356745fa6924a669749bc48b4b",
+    "identity_sha256": "396fc7356745fa6924a669749bc48b4bce1f44b3152d6b989970f6afd1cabc9f",
+    "manifest_sha256": "9430b3c8a3f17676523ff719e474303f4c7e1d85a5f59b4157098045d477a0eb",
+    "interaction_sha256": "8b8a9d52b3e2fececf014d67e593356f01cdf8a4afe3187de4c4929581b99689",
+    "bundle_sha256": "188c9498712d262b41b9305807437b51e6eb436b20f0d677e257989be9ce5a6f",
+    "bundle_size_bytes": 45454,
+    "verdict": "accepted"
+  },
+  "artifact_vector": {
+    "release_candidate_id": "rc_46baebb30eeab8e56ec00c8be20f1c9b",
+    "identity_sha256": "46baebb30eeab8e56ec00c8be20f1c9b392a7bd93c9bb02f15e545cf92991c8d",
+    "manifest_sha256": "3d722839e526f733934249716262f0a4da945dfe058337734838871b26d0c756",
+    "interaction_sha256": "b0adb363c98e0006635a2a1789ebb82039fce6283bcd6232f136ab47a9f2f62f",
+    "bundle_sha256": "2f06269b3d9dd0c366f8b07b73ee932706d2b38762809b8ee0f55bab13d8416e",
+    "bundle_size_bytes": 46920,
+    "verdict": "accepted"
+  }
+}
