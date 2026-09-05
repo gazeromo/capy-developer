@@ -1,0 +1,26 @@
+{
+  "database_schema": 3,
+  "database_sha256": "09153b7661cf9314bd6011f8cb3c401a678aa11c57ab49b4bd0541e31b64e16c",
+  "database_size_bytes": 155648,
+  "failed_classification": "APPLICATION_TESTS_FAILED",
+  "failed_verification_id": "ver_5f3753caf8924fdba00569b6ee2d3da4",
+  "passed_verification_id": "ver_14a8efd446f84f32bebf44ec275ebd92",
+  "row_counts": {
+    "local_checkouts": 0,
+    "project_aliases": 1,
+    "project_applications": 1,
+    "projects": 1,
+    "release_candidate_members": 3,
+    "release_candidates": 1,
+    "session_events": 11,
+    "sessions": 1,
+    "toolchain_locks": 1,
+    "verification_attempts": 2,
+    "verification_stages": 18
+  },
+  "schema": "capy.developer-interaction-baseline/v0",
+  "v0_candidate_id": "rc_fd50b8536d1ca9fda3260e7e0e0416ca",
+  "v0_candidate_identity_sha256": "fd50b8536d1ca9fda3260e7e0e0416ca37afaa5ac24313a18eee67409a75fe00",
+  "v0_candidate_sha256": "fab0d9e9a244af2b21da15e9f09d91dd5195be05d907eeddd4e9feae3b94b983",
+  "v0_candidate_size_bytes": 33499
+}
