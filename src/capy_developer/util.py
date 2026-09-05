@@ -45,13 +45,25 @@ def machine_id() -> str:
     return hashlib.sha256(f"{socket.gethostname()}:{uuid.getnode()}".encode()).hexdigest()[:24]
 
 
+def _containment_path(path: Path) -> str:
+    value = os.path.normpath(str(path))
+    if os.name == "nt" and value.startswith("\\\\?\\"):
+        value = value[4:]
+        if value.lower().startswith("unc\\"):
+            value = "\\\\" + value[4:]
+    return os.path.normcase(value)
+
+
 def safe_resolve(path: Path, *, root: Path | None = None, must_exist: bool = False) -> Path:
     absolute = path.expanduser().absolute()
     resolved = absolute.resolve(strict=must_exist)
     if root is not None:
         root_resolved = root.expanduser().absolute().resolve()
         try:
-            resolved.relative_to(root_resolved)
+            resolved_comparison = _containment_path(resolved)
+            root_comparison = _containment_path(root_resolved)
+            if os.path.commonpath((resolved_comparison, root_comparison)) != root_comparison:
+                raise ValueError("resolved path is outside its configured root")
         except ValueError as exc:
             raise DeveloperError("MANAGED_PATH_ESCAPE", "managed path escapes its configured root") from exc
     return resolved

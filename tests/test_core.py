@@ -11,6 +11,7 @@ import threading
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from capy_developer.config import Config
 from capy_developer.core import DeveloperCore
@@ -26,7 +27,7 @@ from capy_developer.toolchain import (
     HISTORICAL_WHEEL_SHA256,
     ToolchainLock,
 )
-from capy_developer.util import normalize_repository
+from capy_developer.util import _containment_path, normalize_repository
 from capy_developer.util import operation_lock
 
 
@@ -77,6 +78,19 @@ class CoreTestCase(unittest.TestCase):
             "request": "Create a CSV summary probe.",
             "new": {"name": "CSV Summary Probe", "application_id": "demo.csv_summary_probe"},
         })
+
+    def test_windows_extended_paths_have_stable_containment_identity(self):
+        drive_path = Path(r"\\?\C:\Users\runner\state\verification.lock")
+        unc_path = Path(r"\\?\UNC\server\share\verification.lock")
+        with mock.patch("capy_developer.util.os.name", "nt"):
+            self.assertEqual(
+                r"C:\Users\runner\state\verification.lock",
+                _containment_path(drive_path),
+            )
+            self.assertEqual(
+                r"\\server\share\verification.lock",
+                _containment_path(unc_path),
+            )
 
     def test_doctor_verifies_exact_embedded_toolchain(self):
         result = self.core.doctor()
