@@ -34,6 +34,9 @@ from .util import (
 
 
 RESULT_SCHEMA = "capy.development-verification-result/v0"
+RESULT_SCHEMA_V1 = "capy.development-verification-result/v1"
+PIPELINE_V0 = "capy.development-verification-pipeline/v0"
+PIPELINE_V1 = "capy.development-verification-pipeline/v1"
 STAGES = (
     "toolchain_install",
     "check",
@@ -45,7 +48,20 @@ STAGES = (
     "package_compare",
     "archive_preserve",
 )
-TIMEOUTS = {"toolchain_install": 120, "check": 30, "test": 180, "conform": 180, "pack_a": 60, "pack_b": 60}
+STAGES_V1 = (
+    "toolchain_install",
+    "check",
+    "interaction_check",
+    "test",
+    "conform",
+    "source_mutation_check",
+    "pack_a",
+    "pack_b",
+    "package_compare",
+    "archive_preserve",
+    "interaction_preserve",
+)
+TIMEOUTS = {"toolchain_install": 120, "check": 30, "interaction_check": 30, "test": 180, "conform": 180, "pack_a": 60, "pack_b": 60, "interaction_preserve": 30}
 
 
 class VerificationService:
@@ -93,6 +109,7 @@ class VerificationService:
                     application_relative = self._application_root(test_checkout, normalized["application_id"])
                     lock = read_lock(test_checkout)
                     resolved = self.toolchains.resolve(lock)
+                    pipeline = PIPELINE_V1 if resolved.lock.interaction_contract else PIPELINE_V0
                     now = utc_now()
                     with self.db.connect() as db:
                         db.execute(
@@ -100,8 +117,9 @@ class VerificationService:
                                verification_id,session_id,idempotency_key,request_digest,
                                application_id,candidate_commit,candidate_tree,base_commit,
                                development_branch,lock_digest,contract,release_binding_commit,
-                               authoring_bundle_sha256,wheel_sha256,status,started_at,updated_at
-                               ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'RUNNING',?,?)""",
+                               authoring_bundle_sha256,wheel_sha256,pipeline_schema,
+                               interaction_contract,status,started_at,updated_at
+                               ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'RUNNING',?,?)""",
                             (
                                 verification_id,
                                 session_id,
@@ -117,6 +135,8 @@ class VerificationService:
                                 resolved.lock.commit,
                                 resolved.bundle_sha256,
                                 resolved.wheel_sha256,
+                                pipeline,
+                                resolved.lock.interaction_contract,
                                 now,
                                 now,
                             ),
@@ -345,8 +365,39 @@ class VerificationService:
         self._record_process(verification_id, "toolchain_install", combined, True)
         app = test_checkout / application_relative
         attempt = self._attempt(verification_id)
+        interaction = None
         for stage, command, classification in (
             ("check", "check", "DEVKIT_CHECK_FAILED"),
+        ):
+            result = run_process(
+                [str(python), "-m", "capy_script", command, str(app)],
+                cwd=test_checkout,
+                environment=environment,
+                timeout=TIMEOUTS[stage],
+            )
+            process_passed = not result.timed_out and result.exit_code == 0
+            candidate_unchanged = self._candidate_unchanged(
+                test_checkout, attempt["candidate_commit"], attempt["candidate_tree"]
+            )
+            passed = process_passed and candidate_unchanged
+            self._record_process(
+                verification_id, stage, result, passed, facts={"candidate_unchanged": candidate_unchanged}
+            )
+            if not passed:
+                failure = (
+                    "STAGE_TIMEOUT" if result.timed_out else
+                    "SOURCE_MUTATED_DURING_VERIFICATION" if not candidate_unchanged else classification
+                )
+                self._fail_remaining(verification_id, stage, failure)
+                return
+        if attempt["pipeline_schema"] == PIPELINE_V1:
+            interaction = self._check_interaction(
+                verification_id, python, environment, test_checkout, app,
+                attempt_root / "interaction" / "initial.json", attempt,
+            )
+            if interaction is None:
+                return
+        for stage, command, classification in (
             ("test", "test", "APPLICATION_TESTS_FAILED"),
             ("conform", "conform", "CONFORMANCE_FAILED"),
         ):
@@ -476,6 +527,14 @@ class VerificationService:
             duration_ms=round((time.monotonic() - tick) * 1000),
             facts={"sha256": digest_a, "size_bytes": destination.stat().st_size},
         )
+        if attempt["pipeline_schema"] == PIPELINE_V1:
+            assert interaction is not None
+            preserved = self._preserve_interaction(
+                verification_id, python, environment, test_checkout, app,
+                attempt_root / "interaction" / "final.json", attempt, interaction,
+            )
+            if not preserved:
+                return
         self._terminalize(
             verification_id,
             "PASSED",
@@ -484,6 +543,117 @@ class VerificationService:
             archive_size_bytes=destination.stat().st_size,
             archive_path=str(destination),
         )
+
+    def _check_interaction(
+        self, verification_id: str, python: Path, environment: dict[str, str],
+        checkout: Path, app: Path, output: Path, attempt: dict,
+    ) -> dict | None:
+        source = app / "interaction.json"
+        try:
+            resolved = source.resolve(strict=True)
+            resolved.relative_to(app.resolve(strict=True))
+            if source.is_symlink() or not resolved.is_file():
+                raise ValueError
+            source_bytes = resolved.read_bytes()
+        except (OSError, ValueError):
+            self._record_stage(verification_id, "interaction_check", "FAILED")
+            self._fail_remaining(verification_id, "interaction_check", "INTERACTION_CONTRACT_FAILED")
+            return None
+        result = run_process(
+            [str(python), "-m", "capy_script", "interaction-check", str(app), "--output", str(output)],
+            cwd=checkout, environment=environment, timeout=TIMEOUTS["interaction_check"],
+        )
+        candidate_unchanged = self._candidate_unchanged(
+            checkout, attempt["candidate_commit"], attempt["candidate_tree"]
+        )
+        try:
+            canonical = output.read_bytes()
+            document = json.loads(canonical)
+            valid = (
+                len(canonical) <= 1024 * 1024
+                and json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8") == canonical
+                and document.get("schema") == attempt["interaction_contract"]
+                and document.get("application_id") == attempt["application_id"]
+                and isinstance(document.get("operation"), dict)
+                and isinstance(document["operation"].get("operation_id"), str)
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError, AttributeError):
+            canonical, document, valid = b"", {}, False
+        passed = not result.timed_out and result.exit_code == 0 and candidate_unchanged and valid
+        self._record_process(
+            verification_id, "interaction_check", result, passed,
+            facts={"candidate_unchanged": candidate_unchanged},
+        )
+        if not passed:
+            self._fail_remaining(verification_id, "interaction_check", "INTERACTION_CONTRACT_FAILED")
+            return None
+        return {
+            "schema": document["schema"], "source_member": "interaction.json",
+            "source_sha256": sha256_file(source),
+            "canonical_sha256": __import__("hashlib").sha256(canonical).hexdigest(),
+            "canonical_size_bytes": len(canonical),
+            "operation_id": document["operation"]["operation_id"],
+            "canonical": canonical,
+        }
+
+    def _preserve_interaction(
+        self, verification_id: str, python: Path, environment: dict[str, str],
+        checkout: Path, app: Path, output: Path, attempt: dict, initial: dict,
+    ) -> bool:
+        result = run_process(
+            [str(python), "-m", "capy_script", "interaction-check", str(app), "--output", str(output)],
+            cwd=checkout, environment=environment, timeout=TIMEOUTS["interaction_preserve"],
+        )
+        try:
+            canonical = output.read_bytes()
+            source_sha256 = sha256_file(app / "interaction.json")
+        except OSError:
+            canonical, source_sha256 = b"", ""
+        canonical_sha256 = __import__("hashlib").sha256(canonical).hexdigest()
+        candidate_unchanged = self._candidate_unchanged(
+            checkout, attempt["candidate_commit"], attempt["candidate_tree"]
+        )
+        passed = (
+            not result.timed_out and result.exit_code == 0 and candidate_unchanged
+            and source_sha256 == initial["source_sha256"]
+            and canonical_sha256 == initial["canonical_sha256"]
+            and canonical == initial["canonical"]
+        )
+        destination = safe_resolve(
+            self.config.verification_interactions_root / canonical_sha256 / "interaction.json",
+            root=self.config.verification_interactions_root,
+        )
+        if passed:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists() and destination.read_bytes() != canonical:
+                passed = False
+            elif not destination.exists():
+                temporary = destination.with_suffix(".tmp")
+                temporary.write_bytes(canonical)
+                temporary.replace(destination)
+        self._record_process(
+            verification_id, "interaction_preserve", result, passed,
+            facts={
+                "candidate_unchanged": candidate_unchanged,
+                "source_sha256": source_sha256,
+                "canonical_sha256": canonical_sha256,
+                "canonical_size_bytes": len(canonical),
+            },
+        )
+        if not passed:
+            self._fail_remaining(verification_id, "interaction_preserve", "INTERACTION_CONTRACT_FAILED")
+            return False
+        with self.db.connect() as db:
+            db.execute(
+                """INSERT INTO verification_interactions VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    verification_id, initial["schema"], initial["source_member"],
+                    initial["source_sha256"], initial["canonical_sha256"],
+                    initial["canonical_size_bytes"], str(destination),
+                    initial["operation_id"], utc_now(),
+                ),
+            )
+        return True
 
     def _attempt_root(self, verification_id: str) -> Path:
         return safe_resolve(
@@ -596,7 +766,8 @@ class VerificationService:
         stderr_truncated: int = 0,
         facts: dict | None = None,
     ) -> None:
-        order = STAGES.index(stage)
+        stages = self._stage_names(verification_id)
+        order = stages.index(stage)
         started_at = started_at or utc_now()
         terminal_at = terminal_at or utc_now()
         with self.db.connect() as db:
@@ -611,9 +782,14 @@ class VerificationService:
             db.execute("UPDATE verification_attempts SET updated_at=? WHERE verification_id=?", (terminal_at, verification_id))
 
     def _fail_remaining(self, verification_id: str, failed_stage: str, classification: str) -> None:
-        for stage in STAGES[STAGES.index(failed_stage) + 1:]:
+        stages = self._stage_names(verification_id)
+        for stage in stages[stages.index(failed_stage) + 1:]:
             self._record_stage(verification_id, stage, "SKIPPED", facts={"because": failed_stage})
         self._terminalize(verification_id, "FAILED", classification)
+
+    def _stage_names(self, verification_id: str) -> tuple[str, ...]:
+        attempt = self._attempt(verification_id)
+        return STAGES_V1 if attempt.get("pipeline_schema") == PIPELINE_V1 else STAGES
 
     def _terminalize(
         self,
@@ -629,6 +805,8 @@ class VerificationService:
     ) -> None:
         now = utc_now()
         with self.db.connect() as db:
+            if status != "PASSED":
+                db.execute("DELETE FROM verification_interactions WHERE verification_id=?", (verification_id,))
             db.execute(
                 """UPDATE verification_attempts SET status=?,classification=?,updated_at=?,terminal_at=?,
                    archive_sha256=?,archive_size_bytes=?,archive_path=?,error_code=?,error_detail=?
@@ -646,6 +824,7 @@ class VerificationService:
     def _record_cleanup_failure(self, verification_id: str, detail: str) -> None:
         now = utc_now()
         with self.db.connect() as db:
+            db.execute("DELETE FROM verification_interactions WHERE verification_id=?", (verification_id,))
             db.execute(
                 """UPDATE verification_attempts SET status='FAILED',classification='VERIFIER_INTERNAL_FAILED',
                    updated_at=?,terminal_at=?,archive_sha256=NULL,archive_size_bytes=NULL,archive_path=NULL,
@@ -672,6 +851,9 @@ class VerificationService:
                 "SELECT * FROM verification_stages WHERE verification_id=? ORDER BY stage_order",
                 (verification_id,),
             ).fetchall()
+            interaction_row = db.execute(
+                "SELECT * FROM verification_interactions WHERE verification_id=?", (verification_id,)
+            ).fetchone()
         stages = []
         for source in rows:
             row = dict(source)
@@ -699,8 +881,8 @@ class VerificationService:
                 "byte_identical_builds": 2,
                 "available": available,
             }
-        return {
-            "schema": RESULT_SCHEMA,
+        result = {
+            "schema": RESULT_SCHEMA_V1 if attempt.get("pipeline_schema") == PIPELINE_V1 else RESULT_SCHEMA,
             "ok": attempt["status"] == "PASSED",
             "status": attempt["status"],
             "classification": attempt["classification"],
@@ -726,6 +908,32 @@ class VerificationService:
             "terminal_at": attempt["terminal_at"],
             "error": None if not attempt["error_code"] else {"code": attempt["error_code"], "detail": attempt["error_detail"]},
         }
+        if attempt.get("pipeline_schema") == PIPELINE_V1:
+            interaction = dict(interaction_row) if interaction_row is not None else None
+            available = False
+            if interaction:
+                try:
+                    canonical_path = safe_resolve(
+                        Path(interaction["canonical_path"]), root=self.config.verification_interactions_root
+                    )
+                    available = (
+                        canonical_path.is_file()
+                        and sha256_file(canonical_path) == interaction["canonical_sha256"]
+                        and canonical_path.stat().st_size == interaction["canonical_size_bytes"]
+                    )
+                except (DeveloperError, OSError, ValueError):
+                    available = False
+            result["pipeline"] = PIPELINE_V1
+            result["interaction_contract"] = None if interaction is None else {
+                "schema": interaction["schema"],
+                "source_member": interaction["source_member"],
+                "source_sha256": interaction["source_sha256"],
+                "canonical_sha256": interaction["canonical_sha256"],
+                "canonical_size_bytes": interaction["canonical_size_bytes"],
+                "operation_id": interaction["operation_id"],
+                "available": available,
+            }
+        return result
 
     def reconcile(self, session_id: str, *, lock_held: bool = False) -> None:
         with self.db.connect() as db:

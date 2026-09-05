@@ -60,6 +60,7 @@ class Config:
         for path in (
             self.data_root, self.cache_root, self.repositories_root,
             self.worktrees_root, self.verification_temporary_root,
+            self.verification_interactions_root,
             self.release_candidates_root, self.release_candidate_temporary_root,
         ):
             path.mkdir(parents=True, exist_ok=True)
@@ -83,6 +84,10 @@ class Config:
     @property
     def verification_artifacts_root(self) -> Path:
         return self.cache_root / "verification-artifacts" / "sha256"
+
+    @property
+    def verification_interactions_root(self) -> Path:
+        return self.cache_root / "verification-interactions" / "sha256"
 
     @property
     def release_candidates_root(self) -> Path:

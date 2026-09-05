@@ -85,7 +85,7 @@ class CoreTestCase(unittest.TestCase):
         historical = ToolchainLock(
             "capy.toolchain-lock/v0", "capy.script/dev-v0", "gazeromo/capy-script-devkit",
             HISTORICAL_DEVKIT_MAIN, "capy_script_devkit-0.0.0-py3-none-any.whl",
-            HISTORICAL_WHEEL_SHA256, HISTORICAL_BUNDLE_SHA256, "capy.lock", "VALID",
+            HISTORICAL_WHEEL_SHA256, HISTORICAL_BUNDLE_SHA256, None, "capy.lock", "VALID",
         )
         resolved = self.core.toolchains.resolve(historical)
         self.assertEqual(HISTORICAL_BUNDLE_SHA256, resolved.bundle_sha256)

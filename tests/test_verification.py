@@ -21,7 +21,9 @@ from capy_developer.errors import DeveloperError
 from capy_developer.git import run_git
 from capy_developer.mcp import handle
 from capy_developer.process import OUTPUT_LIMIT, ProcessResult, _bounded, combine_process_results, run_process
-from capy_developer.toolchain import ACCEPTED_WHEEL_SHA256
+from capy_developer.toolchain import (
+    ACCEPTED_WHEEL_SHA256, PREVIOUS_BUNDLE_SHA256, PREVIOUS_DEVKIT_MAIN, PREVIOUS_WHEEL_SHA256,
+)
 from capy_developer.util import exclusive_lock
 
 
@@ -70,6 +72,17 @@ class VerificationTests(unittest.TestCase):
         run_git(["commit", "-m", message], cwd=workspace)
         return run_git(["rev-parse", "HEAD"], cwd=workspace)
 
+    def select_v0(self, workspace: Path) -> None:
+        (workspace / "capy.lock").write_text(
+            'schema = "capy.toolchain-lock/v0"\ncontract = "capy.script/dev-v0"\n'
+            'devkit_repository = "gazeromo/capy-script-devkit"\n'
+            f'devkit_commit = "{PREVIOUS_DEVKIT_MAIN}"\n'
+            'wheel = "capy_script_devkit-0.0.0-py3-none-any.whl"\n'
+            f'wheel_sha256 = "{PREVIOUS_WHEEL_SHA256}"\n'
+            f'authoring_bundle_sha256 = "{PREVIOUS_BUNDLE_SHA256}"\n', encoding="utf-8",
+        )
+        self.commit(workspace, "select accepted V0 toolchain")
+
     def test_full_pipeline_passes_replays_after_restart_and_preserves_archive(self):
         session, workspace = self.start()
         payload = self.payload(session, workspace)
@@ -79,7 +92,10 @@ class VerificationTests(unittest.TestCase):
             (first["ok"], first["status"], first["classification"]),
             json.dumps(first, indent=2),
         )
-        self.assertEqual(9, len(first["stages"]))
+        self.assertEqual(11, len(first["stages"]))
+        self.assertEqual("capy.development-verification-result/v1", first["schema"])
+        self.assertEqual("capy.development-verification-pipeline/v1", first["pipeline"])
+        self.assertTrue(first["interaction_contract"]["available"])
         self.assertTrue(all(stage["status"] == "PASSED" for stage in first["stages"]))
         self.assertEqual(2, first["candidate_archive"]["byte_identical_builds"])
         archive = file_uri_path(first["candidate_archive"]["path_uri"])
@@ -264,6 +280,7 @@ class VerificationTests(unittest.TestCase):
         for failed_call, classification in cases.items():
             with self.subTest(classification=classification):
                 session, workspace = self.start(f"start-{failed_call}")
+                self.select_v0(workspace)
                 calls = 0
 
                 def runner(*args, **kwargs):
@@ -280,6 +297,7 @@ class VerificationTests(unittest.TestCase):
 
     def test_stage_timeout_is_causal_and_skips_dependents(self):
         session, workspace = self.start()
+        self.select_v0(workspace)
         calls = 0
 
         def runner(*args, **kwargs):
@@ -311,6 +329,7 @@ class VerificationTests(unittest.TestCase):
 
     def test_nonidentical_pack_bytes_are_rejected(self):
         session, workspace = self.start()
+        self.select_v0(workspace)
         calls = 0
 
         def runner(arguments, **kwargs):
@@ -329,6 +348,7 @@ class VerificationTests(unittest.TestCase):
 
     def test_pack_cannot_commit_mutation_and_leave_snapshot_clean(self):
         session, workspace = self.start()
+        self.select_v0(workspace)
         calls = 0
 
         def runner(arguments, **kwargs):

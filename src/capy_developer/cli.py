@@ -110,9 +110,9 @@ def main(arguments: list[str] | None = None) -> int:
         result = run(arguments)
         if result is not None:
             print(json.dumps(result, sort_keys=True))
-        if result is not None and result.get("schema") == "capy.development-verification-result/v0":
+        if result is not None and result.get("schema") in {"capy.development-verification-result/v0", "capy.development-verification-result/v1"}:
             return 0 if result.get("status") == "PASSED" else 1
-        if result is not None and result.get("schema") == "capy.development-release-candidate-result/v0":
+        if result is not None and result.get("schema") in {"capy.development-release-candidate-result/v0", "capy.development-release-candidate-result/v1"}:
             return 0 if result.get("ok") else 1
         return 0
     except DeveloperError as exc:

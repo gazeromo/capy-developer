@@ -33,6 +33,9 @@ from capy_developer.toolchain import (
     HISTORICAL_BUNDLE_SHA256,
     HISTORICAL_DEVKIT_MAIN,
     HISTORICAL_WHEEL_SHA256,
+    PREVIOUS_BUNDLE_SHA256,
+    PREVIOUS_DEVKIT_MAIN,
+    PREVIOUS_WHEEL_SHA256,
 )
 
 
@@ -78,6 +81,18 @@ class ReleaseCandidateTests(unittest.TestCase):
             "new": {"name": "Candidate Fixture", "application_id": "demo.candidate_fixture"},
         })
         workspace = Path(session["workspace"]["native_path"])
+        (workspace / "capy.lock").write_text(
+            'schema = "capy.toolchain-lock/v0"\ncontract = "capy.script/dev-v0"\n'
+            'devkit_repository = "gazeromo/capy-script-devkit"\n'
+            f'devkit_commit = "{PREVIOUS_DEVKIT_MAIN}"\n'
+            'wheel = "capy_script_devkit-0.0.0-py3-none-any.whl"\n'
+            f'wheel_sha256 = "{PREVIOUS_WHEEL_SHA256}"\n'
+            f'authoring_bundle_sha256 = "{PREVIOUS_BUNDLE_SHA256}"\n', encoding="utf-8",
+        )
+        run_git(["config", "user.name", "Fixture"], cwd=workspace)
+        run_git(["config", "user.email", "fixture@localhost"], cwd=workspace)
+        run_git(["add", "capy.lock"], cwd=workspace)
+        run_git(["commit", "-m", "select accepted V0 toolchain"], cwd=workspace)
         result = self.core.verify_development({
             "session_id": session["session_id"], "application_id": "demo.candidate_fixture",
             "candidate_commit": run_git(["rev-parse", "HEAD"], cwd=workspace), "idempotency_key": "verify",

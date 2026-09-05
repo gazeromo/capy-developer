@@ -13,7 +13,10 @@ from pathlib import Path, PurePosixPath
 
 from .errors import DeveloperError
 from .git import run_git
-from .toolchain import sha256_file
+from .toolchain import (
+    ACCEPTED_BUNDLE_SHA256, ACCEPTED_DEVKIT_MAIN, ACCEPTED_SOURCE_COMMIT,
+    ACCEPTED_WHEEL_SHA256, sha256_file,
+)
 from .util import (
     APPLICATION_ID,
     HEX40,
@@ -27,15 +30,25 @@ from .util import (
     safe_resolve,
     utc_now,
 )
-from .verification import STAGES
+from .verification import PIPELINE_V0, PIPELINE_V1, STAGES, STAGES_V1
 
 
 RESULT_SCHEMA = "capy.development-release-candidate-result/v0"
+RESULT_SCHEMA_V1 = "capy.development-release-candidate-result/v1"
 MANIFEST_SCHEMA = "capy.application-release-candidate/v0"
+MANIFEST_SCHEMA_V1 = "capy.application-release-candidate/v1"
 RECEIPT_SCHEMA = "capy.development-verification-receipt/v0"
+RECEIPT_SCHEMA_V1 = "capy.development-verification-receipt/v1"
 MEMBERS = (
     "RELEASE-CANDIDATE.json",
     "application/application.zip",
+    "evidence/verification.json",
+    "toolchain/authoring-bundle.zip",
+)
+MEMBERS_V1 = (
+    "RELEASE-CANDIDATE.json",
+    "application/application.zip",
+    "application/interaction.json",
     "evidence/verification.json",
     "toolchain/authoring-bundle.zip",
 )
@@ -50,7 +63,7 @@ MAX_TOOLCHAIN_WHEEL_BYTES = 64 * 1024 * 1024
 MAX_RECEIPT_BYTES = 1024 * 1024
 MAX_BUNDLE_BYTES = 130 * 1024 * 1024
 
-_PROCESS_STAGES = {"toolchain_install", "check", "test", "conform", "pack_a", "pack_b"}
+_PROCESS_STAGES = {"toolchain_install", "check", "interaction_check", "test", "conform", "pack_a", "pack_b", "interaction_preserve"}
 
 _FACT_KEYS = {
     "toolchain_install": {"timed_out"},
@@ -62,6 +75,8 @@ _FACT_KEYS = {
     "pack_b": {"timed_out", "candidate_unchanged"},
     "package_compare": {"sha256_a", "sha256_b", "size_a", "size_b"},
     "archive_preserve": {"sha256", "size_bytes"},
+    "interaction_check": {"timed_out", "candidate_unchanged"},
+    "interaction_preserve": {"timed_out", "candidate_unchanged", "source_sha256", "canonical_sha256", "canonical_size_bytes"},
 }
 
 
@@ -121,6 +136,10 @@ def inspect_application_archive(payload: bytes, expected_id: str | None = None, 
             if len(descriptors) != 1:
                 raise DeveloperError("APPLICATION_ARCHIVE_INVALID", "application archive requires one root capability.toml")
             descriptor_bytes = archive.read(descriptors[0])
+            interactions = [info for info in infos if info.filename == "interaction.json"]
+            if len(interactions) > 1:
+                raise DeveloperError("APPLICATION_ARCHIVE_INVALID", "application archive has duplicate root interaction.json")
+            interaction_bytes = archive.read(interactions[0]) if interactions else None
     except DeveloperError as exc:
         raise DeveloperError("APPLICATION_ARCHIVE_INVALID", exc.detail) from exc
     except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
@@ -139,6 +158,8 @@ def inspect_application_archive(payload: bytes, expected_id: str | None = None, 
         "id": application_id,
         "contract": contract,
         "descriptor_sha256": digest_bytes(descriptor_bytes),
+        "descriptor": descriptor,
+        "interaction_bytes": interaction_bytes,
     }
 
 
@@ -163,7 +184,7 @@ def inspect_authoring_bundle(payload: bytes) -> dict:
         raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", exc.detail) from exc
     except (zipfile.BadZipFile, KeyError, json.JSONDecodeError, OSError, RuntimeError) as exc:
         raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", "DevKit authoring bundle is invalid") from exc
-    if manifest.get("schema") != "capy.devkit-authoring-bundle/v0":
+    if manifest.get("schema") not in {"capy.devkit-authoring-bundle/v0", "capy.devkit-authoring-bundle/v1"}:
         raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", "DevKit authoring bundle schema is unsupported")
     wheel_sha256 = digest_bytes(wheel_bytes)
     if manifest.get("wheel_sha256") != wheel_sha256:
@@ -191,11 +212,11 @@ def _portable_facts(stage_name: str, value: object) -> dict:
     for key, item in value.items():
         if key in {"timed_out", "candidate_unchanged"} and not isinstance(item, bool):
             raise DeveloperError("VERIFICATION_INCOMPLETE", "verification stage boolean fact is malformed")
-        if key in {"sha256", "sha256_a", "sha256_b"} and (
+        if key in {"sha256", "sha256_a", "sha256_b", "source_sha256", "canonical_sha256"} and (
             not isinstance(item, str) or HEX64.fullmatch(item) is None
         ):
             raise DeveloperError("VERIFICATION_INCOMPLETE", "verification stage digest fact is malformed")
-        if key in {"size_bytes", "size_a", "size_b"} and (
+        if key in {"size_bytes", "size_a", "size_b", "canonical_size_bytes"} and (
             not isinstance(item, int) or isinstance(item, bool) or item < 0
         ):
             raise DeveloperError("VERIFICATION_INCOMPLETE", "verification stage size fact is malformed")
@@ -209,6 +230,29 @@ def _portable_facts(stage_name: str, value: object) -> dict:
 
 
 def _identity_from_manifest(manifest: dict) -> dict:
+    if manifest.get("schema") == MANIFEST_SCHEMA_V1:
+        interaction = manifest["application"]["interaction"]
+        return {
+            "schema": MANIFEST_SCHEMA_V1,
+            "project_id": manifest["project"]["project_id"],
+            "application_id": manifest["application"]["id"],
+            "source": manifest["source"],
+            "application_archive_sha256": manifest["application"]["archive"]["sha256"],
+            "application_descriptor_sha256": manifest["application"]["descriptor_sha256"],
+            "interaction": {
+                "schema": interaction["schema"],
+                "source_sha256": interaction["source_sha256"],
+                "canonical_sha256": interaction["sha256"],
+                "operation_id": interaction["operation_id"],
+            },
+            "verification_receipt_sha256": manifest["verification"]["receipt"]["sha256"],
+            "toolchain": {
+                "release_binding_commit": manifest["toolchain"]["release_binding_commit"],
+                "authoring_bundle_sha256": manifest["toolchain"]["authoring_bundle"]["sha256"],
+                "wheel_sha256": manifest["toolchain"]["wheel_sha256"],
+                "interaction_contract": manifest["toolchain"]["interaction_contract"],
+            },
+        }
     return {
         "schema": MANIFEST_SCHEMA,
         "project_id": manifest["project"]["project_id"],
@@ -230,11 +274,11 @@ def _identity_from_manifest(manifest: dict) -> dict:
     }
 
 
-def _zip_bytes(member_payloads: dict[str, bytes]) -> bytes:
+def _zip_bytes(member_payloads: dict[str, bytes], members: tuple[str, ...] = MEMBERS) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
         archive.comment = b""
-        for name in MEMBERS:
+        for name in members:
             info = zipfile.ZipInfo(name, FIXED_ZIP_TIME)
             info.compress_type = zipfile.ZIP_STORED
             info.create_system = 3
@@ -248,7 +292,7 @@ def _zip_bytes(member_payloads: dict[str, bytes]) -> bytes:
     return value
 
 
-def validate_bundle_bytes(payload: bytes) -> dict:
+def _validate_v0_bundle_bytes(payload: bytes) -> dict:
     if len(payload) > MAX_BUNDLE_BYTES:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "release candidate exceeds the V0 byte limit")
     try:
@@ -453,6 +497,244 @@ def validate_bundle_bytes(payload: bytes) -> dict:
     }
 
 
+def _interaction_leaves(schema: dict, prefix: tuple[str, ...] = (), required: bool = True) -> dict[str, tuple[dict, bool]]:
+    if not isinstance(schema, dict):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction input schema is invalid")
+    if schema.get("type") == "object":
+        if schema.get("additionalProperties") is not False or not isinstance(schema.get("properties", {}), dict):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction input object is not closed")
+        required_names = schema.get("required", [])
+        if not isinstance(required_names, list):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction requiredness is invalid")
+        leaves: dict[str, tuple[dict, bool]] = {}
+        for name, child in schema.get("properties", {}).items():
+            leaves.update(_interaction_leaves(child, (*prefix, name), required and name in required_names))
+        return leaves
+    if schema.get("type") not in {"string", "integer", "number", "boolean"} or not prefix:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction input leaf is unsupported")
+    return {".".join(prefix): (schema, required)}
+
+
+def _schema_accepts(value: object, schema: dict) -> bool:
+    kind = schema.get("type")
+    if kind == "string":
+        return isinstance(value, str) and ("enum" not in schema or value in schema["enum"])
+    if kind == "boolean":
+        return type(value) is bool
+    if kind == "integer":
+        return type(value) is int
+    if kind == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return False
+
+
+def _result_path(schema: dict, dotted: str) -> dict | None:
+    node = schema
+    for segment in dotted.split("."):
+        if node.get("type") != "object" or segment not in node.get("properties", {}):
+            return None
+        node = node["properties"][segment]
+    return node
+
+
+def _validate_interaction_contract(descriptor: dict, source: bytes, canonical: bytes) -> dict:
+    try:
+        document = json.loads(source)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "source interaction JSON is malformed") from exc
+    if canonical_json(document) != canonical:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "source and canonical interaction contracts differ")
+    if set(document) != {"schema", "application_id", "title", "purpose", "not_for", "operation", "boundaries"}:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction top-level shape is invalid")
+    if document["schema"] != "capy.application-interaction/dev-v0" or document["application_id"] != descriptor.get("id"):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction application identity is invalid")
+    if descriptor.get("schema") != "capy.script/dev-v0" or descriptor.get("state_required") is not False or descriptor.get("connections") != [] or descriptor.get("side_effect") not in {"read_only", "artifact_generation"}:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction executable eligibility is invalid")
+    operation = document["operation"]
+    operation_keys = {"operation_id", "title", "user_outcome", "description", "request_fields", "resource_fields", "examples", "common_misunderstandings", "result"}
+    if not isinstance(operation, dict) or set(operation) != operation_keys or not isinstance(operation.get("operation_id"), str):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction operation shape is invalid")
+    leaves = _interaction_leaves(descriptor.get("input_schema", {}))
+    request_keys = {"field_id", "label", "description", "required", "input_kind", "safe_default", "examples", "clarification_question"}
+    observed: set[str] = set()
+    for field in operation.get("request_fields", []):
+        if not isinstance(field, dict) or set(field) != request_keys or field.get("field_id") not in leaves or field["field_id"] in observed:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction request field coverage is invalid")
+        observed.add(field["field_id"])
+        rule, required = leaves[field["field_id"]]
+        expected_kinds = {"string": {"choice"} if "enum" in rule else {"text", "long_text"}, "integer": {"number"}, "number": {"number"}, "boolean": {"boolean"}}[rule["type"]]
+        if type(field.get("required")) is not bool or field["required"] is not required or field.get("input_kind") not in expected_kinds:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction request field semantics are invalid")
+        default = field.get("safe_default")
+        if (required and default is not None) or (default is not None and not _schema_accepts(default, rule)):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction safe default is invalid")
+    if observed != set(leaves):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction request fields are incomplete")
+    resources = {item["name"]: item for item in descriptor.get("resources", [])}
+    resource_keys = {"slot", "label", "description", "required", "minimum_count", "maximum_count", "input_kind", "examples", "clarification_question"}
+    observed_resources: set[str] = set()
+    for field in operation.get("resource_fields", []):
+        if not isinstance(field, dict) or set(field) != resource_keys or field.get("slot") not in resources or field["slot"] in observed_resources:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction resource field coverage is invalid")
+        observed_resources.add(field["slot"])
+        rule = resources[field["slot"]]
+        if (field.get("required"), field.get("minimum_count"), field.get("maximum_count"), field.get("input_kind")) != (rule["required"], rule["min_items"], rule["max_items"], "file"):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction resource field semantics are invalid")
+    if observed_resources != set(resources):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction resource fields are incomplete")
+    result = operation.get("result")
+    if not isinstance(result, dict) or set(result) != {"presentation", "facts", "artifacts"}:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction result shape is invalid")
+    fact_paths: set[str] = set()
+    for fact in result["facts"]:
+        if not isinstance(fact, dict) or set(fact) != {"path", "label"} or fact.get("path") in fact_paths:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction result fact is invalid")
+        fact_paths.add(fact["path"])
+        node = _result_path(descriptor.get("result_schema", {}), fact["path"])
+        if node is None or node.get("type") not in {"string", "integer", "number", "boolean"}:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction result fact is unknown")
+    filenames = [item.get("filename") for item in result["artifacts"] if isinstance(item, dict) and set(item) == {"filename", "label"}]
+    expected_node = descriptor.get("result_schema", {}).get("properties", {}).get("artifact_filenames", {})
+    expected_files = expected_node.get("items", {}).get("enum") if expected_node.get("type") == "array" else None
+    if descriptor["side_effect"] == "read_only" and filenames:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "read-only interaction advertises artifacts")
+    if descriptor["side_effect"] == "artifact_generation" and filenames != expected_files:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction artifact list differs from executable truth")
+    if result.get("presentation") != ("artifact_result" if filenames else "facts"):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction presentation is invalid")
+    boundaries = document.get("boundaries")
+    if not isinstance(boundaries, list) or not boundaries or any(not isinstance(item, dict) or set(item) != {"boundary_id", "request_class", "explanation", "nearest_operation_ids"} or item["nearest_operation_ids"] != [operation["operation_id"]] for item in boundaries):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction boundaries are invalid")
+    return {"schema": document["schema"], "operation_id": operation["operation_id"]}
+
+
+def _validate_v1_bundle_bytes(payload: bytes) -> dict:
+    if len(payload) > MAX_BUNDLE_BYTES:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "release candidate exceeds the byte limit")
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            infos = _safe_zip_infos(archive, exact_names=MEMBERS_V1)
+            if archive.comment or any(info.date_time != FIXED_ZIP_TIME or info.compress_type != zipfile.ZIP_STORED or info.create_system != 3 or ((info.external_attr >> 16) & 0xFFFF) != 0o100644 or info.extra or info.comment for info in infos):
+                raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "release candidate ZIP metadata is not canonical")
+            members = {name: archive.read(name) for name in MEMBERS_V1}
+    except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "release candidate is not a valid ZIP") from exc
+    if _zip_bytes(members, MEMBERS_V1) != payload:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "release candidate outer bytes are not canonical")
+    try:
+        manifest = json.loads(members[MEMBERS_V1[0]])
+        receipt = json.loads(members[MEMBERS_V1[3]])
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate JSON metadata is malformed") from exc
+    if canonical_json(manifest) != members[MEMBERS_V1[0]] or canonical_json(receipt) != members[MEMBERS_V1[3]]:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate JSON metadata is not canonical")
+    _require_keys(manifest, {"schema", "release_candidate_id", "identity_sha256", "project", "source", "application", "toolchain", "verification", "handoff", "verified_at"}, "manifest")
+    _require_keys(receipt, {"schema", "pipeline", "verification_id", "status", "classification", "session_id", "project_id", "application_id", "source", "toolchain", "interaction_contract", "stages", "application_archive", "verified_at"}, "receipt")
+    if manifest["schema"] != MANIFEST_SCHEMA_V1 or receipt["schema"] != RECEIPT_SCHEMA_V1 or receipt["pipeline"] != PIPELINE_V1:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 schema identity is invalid")
+    _require_keys(manifest["project"], {"project_id"}, "manifest project")
+    _require_keys(manifest["source"], {"repository", "commit", "tree", "base_commit"}, "manifest source")
+    _require_keys(manifest["source"]["repository"], {"kind", "public_identity", "identity_sha256"}, "manifest repository")
+    _require_keys(manifest["toolchain"], {"release_binding_commit", "implementation_commit", "authoring_bundle", "wheel_filename", "wheel_sha256", "interaction_contract"}, "manifest toolchain")
+    _require_keys(manifest["verification"], {"verification_id", "receipt"}, "manifest verification")
+    _require_keys(receipt["source"], {"commit", "tree", "base_commit"}, "receipt source")
+    _require_keys(receipt["toolchain"], {"contract", "interaction_contract", "lock_digest", "release_binding_commit", "implementation_commit", "authoring_bundle_sha256", "wheel_filename", "wheel_sha256"}, "receipt toolchain")
+    _require_keys(receipt["application_archive"], {"sha256", "size_bytes"}, "receipt application archive")
+    app = manifest["application"]
+    _require_keys(app, {"id", "contract", "descriptor_sha256", "archive", "interaction"}, "manifest application")
+    interaction_binding = _require_keys(app["interaction"], {"schema", "source_member", "source_sha256", "member", "sha256", "size_bytes", "operation_id"}, "manifest interaction")
+    bindings = ((app["archive"], MEMBERS_V1[1]), (interaction_binding, MEMBERS_V1[2]), (manifest["verification"]["receipt"], MEMBERS_V1[3]), (manifest["toolchain"]["authoring_bundle"], MEMBERS_V1[4]))
+    for binding, name in bindings:
+        if binding.get("member") != name or binding.get("sha256") != digest_bytes(members[name]) or binding.get("size_bytes") != len(members[name]):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 member binding is invalid")
+    application = inspect_application_archive(members[MEMBERS_V1[1]], app["id"], app["contract"])
+    if application["descriptor_sha256"] != app["descriptor_sha256"] or application["interaction_bytes"] is None:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "application archive identity is invalid")
+    validated_interaction = _validate_interaction_contract(application["descriptor"], application["interaction_bytes"], members[MEMBERS_V1[2]])
+    if interaction_binding["schema"] != validated_interaction["schema"] or interaction_binding["operation_id"] != validated_interaction["operation_id"] or interaction_binding["source_member"] != "interaction.json" or interaction_binding["source_sha256"] != digest_bytes(application["interaction_bytes"]):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction source binding is invalid")
+    toolchain = inspect_authoring_bundle(members[MEMBERS_V1[4]])
+    toolchain_manifest = toolchain["manifest"]
+    if (
+        digest_bytes(members[MEMBERS_V1[4]]) != ACCEPTED_BUNDLE_SHA256
+        or toolchain["wheel_sha256"] != ACCEPTED_WHEEL_SHA256
+        or toolchain_manifest.get("schema") != "capy.devkit-authoring-bundle/v1"
+        or toolchain_manifest.get("interaction_contract") != interaction_binding["schema"]
+        or toolchain_manifest.get("source_commit") != ACCEPTED_SOURCE_COMMIT
+        or manifest["toolchain"].get("release_binding_commit") != ACCEPTED_DEVKIT_MAIN
+        or manifest["toolchain"].get("implementation_commit") != ACCEPTED_SOURCE_COMMIT
+        or manifest["toolchain"].get("wheel_sha256") != ACCEPTED_WHEEL_SHA256
+        or manifest["toolchain"].get("wheel_filename") != toolchain["wheel_filename"]
+        or manifest["toolchain"].get("interaction_contract") != interaction_binding["schema"]
+    ):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction-aware toolchain identity is invalid")
+    expected_handoff = {"verification":"passed","independent_acceptance":"required","interaction_contract":"included_unaccepted","state_migration":"not_assessed","rollback":"not_assessed","runtime_version_digest":"not_assigned","publication":"not_performed","installation":"not_performed","binding":"not_performed","deployment":"not_performed","publisher_signature":"not_present","secret_scan":"not_performed","runtime_import":"not_performed"}
+    if manifest.get("handoff") != expected_handoff:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 handoff claims were weakened or changed")
+    if [stage.get("name") for stage in receipt.get("stages", [])] != list(STAGES_V1) or any(stage.get("status") != "PASSED" for stage in receipt.get("stages", [])):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 stage sequence is invalid")
+    stage_keys = {"name", "status", "exit_code", "stored_stdout_sha256", "stored_stdout_bytes", "stored_stderr_sha256", "stored_stderr_bytes", "stdout_truncated_bytes", "stderr_truncated_bytes", "facts"}
+    for stage in receipt["stages"]:
+        _require_keys(stage, stage_keys, "verification receipt stage")
+        if stage["name"] in _PROCESS_STAGES and stage["exit_code"] != 0:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 passed process stage is invalid")
+        if stage["name"] not in _PROCESS_STAGES and stage["exit_code"] is not None:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 internal stage exit code is invalid")
+        _portable_facts(stage["name"], stage.get("facts"))
+    facts = {stage["name"]: stage["facts"] for stage in receipt["stages"]}
+    archive_fact = {"sha256": app["archive"]["sha256"], "size_bytes": app["archive"]["size_bytes"]}
+    if (
+        facts["archive_preserve"] != archive_fact
+        or facts["package_compare"]["sha256_a"] != archive_fact["sha256"]
+        or facts["package_compare"]["size_a"] != archive_fact["size_bytes"]
+        or facts["interaction_preserve"]["source_sha256"] != interaction_binding["source_sha256"]
+        or facts["interaction_preserve"]["canonical_sha256"] != interaction_binding["sha256"]
+        or facts["interaction_preserve"]["canonical_size_bytes"] != interaction_binding["size_bytes"]
+    ):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 preservation facts disagree")
+    expected_interaction = {key: interaction_binding[key] for key in ("schema", "source_member", "source_sha256", "sha256", "size_bytes", "operation_id")}
+    expected_interaction = {"schema":expected_interaction["schema"],"source_member":expected_interaction["source_member"],"source_sha256":expected_interaction["source_sha256"],"canonical_sha256":expected_interaction["sha256"],"canonical_size_bytes":expected_interaction["size_bytes"],"operation_id":expected_interaction["operation_id"]}
+    if (
+        receipt.get("interaction_contract") != expected_interaction
+        or receipt.get("application_archive") != {"sha256": app["archive"]["sha256"], "size_bytes": app["archive"]["size_bytes"]}
+        or receipt.get("verification_id") != manifest["verification"]["verification_id"]
+        or receipt.get("project_id") != manifest["project"]["project_id"]
+        or receipt.get("application_id") != app["id"]
+        or receipt.get("source") != {key: manifest["source"][key] for key in ("commit", "tree", "base_commit")}
+        or receipt.get("status") != "PASSED" or receipt.get("classification") != "VERIFIED"
+        or receipt.get("verified_at") != manifest.get("verified_at")
+        or receipt["toolchain"] != {
+            "contract": app["contract"], "interaction_contract": interaction_binding["schema"],
+            "lock_digest": receipt["toolchain"]["lock_digest"],
+            "release_binding_commit": manifest["toolchain"]["release_binding_commit"],
+            "implementation_commit": manifest["toolchain"]["implementation_commit"],
+            "authoring_bundle_sha256": manifest["toolchain"]["authoring_bundle"]["sha256"],
+            "wheel_filename": manifest["toolchain"]["wheel_filename"],
+            "wheel_sha256": manifest["toolchain"]["wheel_sha256"],
+        }
+    ):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 receipt disagrees with manifest")
+    identity_sha256 = digest_bytes(canonical_json(_identity_from_manifest(manifest)))
+    candidate_id = "rc_" + identity_sha256[:32]
+    if manifest.get("identity_sha256") != identity_sha256 or manifest.get("release_candidate_id") != candidate_id:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 identity is invalid")
+    return {"manifest":manifest,"receipt":receipt,"identity_sha256":identity_sha256,"release_candidate_id":candidate_id,"manifest_sha256":digest_bytes(members[MEMBERS_V1[0]]),"bundle_sha256":digest_bytes(payload),"bundle_size_bytes":len(payload)}
+
+
+def validate_bundle_bytes(payload: bytes) -> dict:
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            first = archive.read("RELEASE-CANDIDATE.json")
+        schema = json.loads(first).get("schema")
+    except (zipfile.BadZipFile, KeyError, json.JSONDecodeError, OSError, UnicodeError) as exc:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate manifest is unavailable") from exc
+    if schema == MANIFEST_SCHEMA:
+        return _validate_v0_bundle_bytes(payload)
+    if schema == MANIFEST_SCHEMA_V1:
+        return _validate_v1_bundle_bytes(payload)
+    raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate metadata schema is unsupported")
+
+
 class ReleaseCandidateService:
     def __init__(self, core):
         self.core = core
@@ -511,11 +793,18 @@ class ReleaseCandidateService:
                 payloads = {
                     MEMBERS[0]: context["manifest_bytes"],
                     MEMBERS[1]: context["application_bytes"],
-                    MEMBERS[2]: context["receipt_bytes"],
-                    MEMBERS[3]: context["toolchain_bytes"],
                 }
-                bundle_a = _zip_bytes(payloads)
-                bundle_b = _zip_bytes(payloads)
+                if context["members"] == MEMBERS_V1:
+                    payloads = {
+                        MEMBERS_V1[0]: context["manifest_bytes"], MEMBERS_V1[1]: context["application_bytes"],
+                        MEMBERS_V1[2]: context["interaction_bytes"], MEMBERS_V1[3]: context["receipt_bytes"],
+                        MEMBERS_V1[4]: context["toolchain_bytes"],
+                    }
+                else:
+                    payloads[MEMBERS[2]] = context["receipt_bytes"]
+                    payloads[MEMBERS[3]] = context["toolchain_bytes"]
+                bundle_a = _zip_bytes(payloads, context["members"])
+                bundle_b = _zip_bytes(payloads, context["members"])
                 if bundle_a != bundle_b:
                     raise DeveloperError("RELEASE_CANDIDATE_NOT_REPRODUCIBLE", "two candidate builds were not byte-identical")
                 (attempt_root / "a.capyrc").write_bytes(bundle_a)
@@ -593,6 +882,9 @@ class ReleaseCandidateService:
             stages = [dict(row) for row in db.execute(
                 "SELECT * FROM verification_stages WHERE verification_id=? ORDER BY stage_order", (verification_id,)
             )]
+            interaction_row = db.execute(
+                "SELECT * FROM verification_interactions WHERE verification_id=?", (verification_id,)
+            ).fetchone()
             session = db.execute("SELECT * FROM sessions WHERE session_id=?", (attempt["session_id"],)).fetchone()
             if session is None:
                 raise DeveloperError("DEVELOPMENT_SESSION_INELIGIBLE", "verification session is unavailable")
@@ -606,7 +898,9 @@ class ReleaseCandidateService:
             raise DeveloperError("DEVELOPMENT_SESSION_INELIGIBLE", "verification session is not eligible for candidate creation")
         if project is None or registered is None:
             raise DeveloperError("DEVELOPMENT_SESSION_INELIGIBLE", "verification project or application registration is unavailable")
-        if len(stages) != len(STAGES) or [row["stage_name"] for row in stages] != list(STAGES) or any(
+        pipeline = attempt.get("pipeline_schema") or PIPELINE_V0
+        expected_stages = STAGES_V1 if pipeline == PIPELINE_V1 else STAGES
+        if len(stages) != len(expected_stages) or [row["stage_name"] for row in stages] != list(expected_stages) or any(
             row["status"] != "PASSED" for row in stages
         ):
             raise DeveloperError("VERIFICATION_INCOMPLETE", "verification does not contain the complete passed stage sequence")
@@ -622,6 +916,25 @@ class ReleaseCandidateService:
         if digest_bytes(application_bytes) != attempt["archive_sha256"] or len(application_bytes) != attempt["archive_size_bytes"]:
             raise DeveloperError("VERIFICATION_ARCHIVE_INTEGRITY_FAILED", "verified application archive differs from its record")
         application = inspect_application_archive(application_bytes, attempt["application_id"], attempt["contract"])
+        interaction = dict(interaction_row) if interaction_row is not None else None
+        interaction_bytes = None
+        if pipeline == PIPELINE_V1:
+            if interaction is None or application.get("interaction_bytes") is None:
+                raise DeveloperError("INTERACTION_EVIDENCE_MISSING", "V1 verification interaction evidence is unavailable")
+            try:
+                interaction_path = safe_resolve(
+                    Path(interaction["canonical_path"]), root=self.config.verification_interactions_root
+                )
+                interaction_bytes = interaction_path.read_bytes()
+            except (DeveloperError, OSError, ValueError) as exc:
+                raise DeveloperError("INTERACTION_EVIDENCE_MISSING", "canonical interaction evidence is unavailable") from exc
+            if digest_bytes(interaction_bytes) != interaction["canonical_sha256"] or len(interaction_bytes) != interaction["canonical_size_bytes"]:
+                raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "canonical interaction evidence differs from its record")
+            if digest_bytes(application["interaction_bytes"]) != interaction["source_sha256"]:
+                raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "application archive interaction source differs from verification")
+            validated = _validate_interaction_contract(application["descriptor"], application["interaction_bytes"], interaction_bytes)
+            if validated != {"schema": interaction["schema"], "operation_id": interaction["operation_id"]}:
+                raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "canonical interaction identity differs from verification")
         try:
             repository = safe_resolve(
                 self.config.repositories_root / f"{session['project_id']}.git", root=self.config.repositories_root, must_exist=True
@@ -641,6 +954,7 @@ class ReleaseCandidateService:
             release_binding_commit=attempt["release_binding_commit"],
             authoring_bundle_sha256=attempt["authoring_bundle_sha256"],
             wheel_sha256=attempt["wheel_sha256"],
+            interaction_contract=attempt.get("interaction_contract"),
         )
         toolchain_bytes = bundle.read_bytes()
         inspected_toolchain = inspect_authoring_bundle(toolchain_bytes)
@@ -668,6 +982,16 @@ class ReleaseCandidateService:
                 "wheel_sha256": attempt["wheel_sha256"],
             },
         }
+        if pipeline == PIPELINE_V1:
+            identity_seed = {
+                **identity_seed,
+                "schema": MANIFEST_SCHEMA_V1,
+                "interaction": {
+                    "schema": interaction["schema"], "source_sha256": interaction["source_sha256"],
+                    "canonical_sha256": interaction["canonical_sha256"], "operation_id": interaction["operation_id"],
+                },
+                "toolchain": {**identity_seed["toolchain"], "interaction_contract": attempt["interaction_contract"]},
+            }
         identity_sha256 = digest_bytes(canonical_json(identity_seed))
         candidate_id = "rc_" + identity_sha256[:32]
         manifest = self._manifest(
@@ -682,6 +1006,8 @@ class ReleaseCandidateService:
             "project": dict(project),
             "application": application,
             "application_bytes": application_bytes,
+            "interaction": interaction,
+            "interaction_bytes": interaction_bytes,
             "toolchain_bytes": toolchain_bytes,
             "toolchain_manifest": toolchain_manifest,
             "receipt_bytes": receipt_bytes,
@@ -692,6 +1018,7 @@ class ReleaseCandidateService:
             "manifest": manifest,
             "manifest_bytes": manifest_bytes,
             "manifest_sha256": digest_bytes(manifest_bytes),
+            "members": MEMBERS_V1 if pipeline == PIPELINE_V1 else MEMBERS,
         }
 
     def _receipt(self, attempt: dict, session: dict, stages: list[dict], toolchain_manifest: dict) -> dict:
@@ -724,7 +1051,7 @@ class ReleaseCandidateService:
                 "VERIFICATION_INCOMPLETE",
                 "passed package and preservation facts disagree with the verified archive",
             )
-        return {
+        receipt = {
             "schema": RECEIPT_SCHEMA,
             "verification_id": attempt["verification_id"],
             "status": "PASSED", "classification": "VERIFIED",
@@ -742,13 +1069,27 @@ class ReleaseCandidateService:
             "application_archive": {"sha256": attempt["archive_sha256"], "size_bytes": attempt["archive_size_bytes"]},
             "verified_at": attempt["terminal_at"],
         }
+        if attempt.get("pipeline_schema") == PIPELINE_V1:
+            with self.db.connect() as db:
+                interaction = dict(db.execute(
+                    "SELECT * FROM verification_interactions WHERE verification_id=?", (attempt["verification_id"],)
+                ).fetchone())
+            receipt["schema"] = RECEIPT_SCHEMA_V1
+            receipt["pipeline"] = PIPELINE_V1
+            receipt["interaction_contract"] = {
+                "schema": interaction["schema"], "source_member": interaction["source_member"],
+                "source_sha256": interaction["source_sha256"], "canonical_sha256": interaction["canonical_sha256"],
+                "canonical_size_bytes": interaction["canonical_size_bytes"], "operation_id": interaction["operation_id"],
+            }
+            receipt["toolchain"]["interaction_contract"] = attempt["interaction_contract"]
+        return receipt
 
     def _manifest(
         self, candidate_id: str, identity_sha256: str, attempt: dict, session: dict,
         repository_identity: dict, application: dict, receipt_bytes: bytes,
         toolchain_bytes: bytes, toolchain_manifest: dict, wheel_filename: str,
     ) -> dict:
-        return {
+        manifest = {
             "schema": MANIFEST_SCHEMA, "release_candidate_id": candidate_id,
             "identity_sha256": identity_sha256, "project": {"project_id": session["project_id"]},
             "source": {"repository": repository_identity, "commit": attempt["candidate_commit"], "tree": attempt["candidate_tree"], "base_commit": attempt["base_commit"]},
@@ -772,6 +1113,32 @@ class ReleaseCandidateService:
             },
             "verified_at": attempt["terminal_at"],
         }
+        if attempt.get("pipeline_schema") == PIPELINE_V1:
+            with self.db.connect() as db:
+                interaction = dict(db.execute(
+                    "SELECT * FROM verification_interactions WHERE verification_id=?", (attempt["verification_id"],)
+                ).fetchone())
+            manifest["schema"] = MANIFEST_SCHEMA_V1
+            manifest["application"]["interaction"] = {
+                "schema": interaction["schema"], "source_member": interaction["source_member"],
+                "source_sha256": interaction["source_sha256"], "member": MEMBERS_V1[2],
+                "sha256": interaction["canonical_sha256"], "size_bytes": interaction["canonical_size_bytes"],
+                "operation_id": interaction["operation_id"],
+            }
+            manifest["application"]["archive"]["member"] = MEMBERS_V1[1]
+            manifest["toolchain"]["authoring_bundle"]["member"] = MEMBERS_V1[4]
+            manifest["toolchain"]["interaction_contract"] = attempt["interaction_contract"]
+            manifest["verification"]["receipt"]["member"] = MEMBERS_V1[3]
+            manifest["handoff"] = {
+                "verification": "passed", "independent_acceptance": "required",
+                "interaction_contract": "included_unaccepted", "state_migration": "not_assessed",
+                "rollback": "not_assessed", "runtime_version_digest": "not_assigned",
+                "publication": "not_performed", "installation": "not_performed",
+                "binding": "not_performed", "deployment": "not_performed",
+                "publisher_signature": "not_present", "secret_scan": "not_performed",
+                "runtime_import": "not_performed",
+            }
+        return manifest
 
     def _allocate(self, context: dict, existing: dict | None) -> None:
         now = utc_now()
@@ -815,17 +1182,17 @@ class ReleaseCandidateService:
                        application_archive_sha256,application_archive_size_bytes,descriptor_sha256,
                        toolchain_contract,toolchain_release_binding_commit,toolchain_implementation_commit,
                        toolchain_authoring_bundle_sha256,toolchain_wheel_filename,toolchain_wheel_sha256,
-                       verification_receipt_sha256,manifest_json,manifest_sha256,
+                       verification_receipt_sha256,format_schema,manifest_json,manifest_sha256,
                        bundle_sha256,bundle_size_bytes,bundle_path,status,classification,attempt_count,
                        started_at,updated_at,terminal_at,error_code,error_detail
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         context["release_candidate_id"], attempt["verification_id"], session["session_id"], session["project_id"], attempt["application_id"],
                         attempt["candidate_commit"], attempt["candidate_tree"], attempt["base_commit"], context["identity_sha256"],
                         repo["kind"], repo["public_identity"], repo["identity_sha256"], attempt["archive_sha256"], attempt["archive_size_bytes"],
                         context["application"]["descriptor_sha256"], attempt["contract"], attempt["release_binding_commit"], toolchain["source_commit"],
                         attempt["authoring_bundle_sha256"], toolchain["wheel_filename"], attempt["wheel_sha256"], context["receipt_sha256"],
-                        context["manifest_bytes"].decode("utf-8"), context["manifest_sha256"], None, None, None,
+                        context["manifest"]["schema"], context["manifest_bytes"].decode("utf-8"), context["manifest_sha256"], None, None, None,
                         "BUILDING", None, 1, now, now, None, None, None,
                     ),
                 )
@@ -898,12 +1265,22 @@ class ReleaseCandidateService:
         with self.db.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             db.execute("DELETE FROM release_candidate_members WHERE release_candidate_id=?", (candidate_id,))
-            for member, payload in (
-                (MEMBERS[1], context["application_bytes"]),
-                (MEMBERS[2], context["receipt_bytes"]),
-                (MEMBERS[3], context["toolchain_bytes"]),
-            ):
+            payloads = (
+                ((MEMBERS_V1[1], context["application_bytes"]), (MEMBERS_V1[2], context["interaction_bytes"]),
+                 (MEMBERS_V1[3], context["receipt_bytes"]), (MEMBERS_V1[4], context["toolchain_bytes"]))
+                if context["members"] == MEMBERS_V1 else
+                ((MEMBERS[1], context["application_bytes"]), (MEMBERS[2], context["receipt_bytes"]), (MEMBERS[3], context["toolchain_bytes"]))
+            )
+            for member, payload in payloads:
                 db.execute("INSERT INTO release_candidate_members VALUES (?,?,?,?)", (candidate_id, member, digest_bytes(payload), len(payload)))
+            db.execute("DELETE FROM release_candidate_interactions WHERE release_candidate_id=?", (candidate_id,))
+            if context["interaction"] is not None:
+                interaction = context["interaction"]
+                db.execute(
+                    "INSERT INTO release_candidate_interactions VALUES (?,?,?,?,?,?,?,?)",
+                    (candidate_id, interaction["schema"], interaction["source_member"], interaction["source_sha256"],
+                     MEMBERS_V1[2], interaction["canonical_sha256"], interaction["canonical_size_bytes"], interaction["operation_id"]),
+                )
             db.execute(
                 """UPDATE release_candidates SET bundle_sha256=?,bundle_size_bytes=?,bundle_path=?,status='READY',
                    classification='RELEASE_CANDIDATE_CREATED',updated_at=?,terminal_at=?,error_code=NULL,error_detail=NULL
@@ -926,8 +1303,9 @@ class ReleaseCandidateService:
 
     def _result(self, candidate: dict, current_state: str, discrepancy: dict | None) -> dict:
         available = candidate["status"] == "READY" and current_state == "AVAILABLE"
-        return {
-            "schema": RESULT_SCHEMA, "ok": available, "status": candidate["status"],
+        result = {
+            "schema": RESULT_SCHEMA_V1 if candidate.get("format_schema") == MANIFEST_SCHEMA_V1 else RESULT_SCHEMA,
+            "ok": available, "status": candidate["status"],
             "classification": candidate["classification"], "release_candidate_id": candidate["release_candidate_id"],
             "verification_id": candidate["verification_id"], "session_id": candidate["session_id"],
             "project_id": candidate["project_id"], "application_id": candidate["application_id"],
@@ -947,3 +1325,19 @@ class ReleaseCandidateService:
             "attempt_count": candidate["attempt_count"], "discrepancy": discrepancy,
             "error": None if not candidate["error_code"] else {"code": candidate["error_code"], "detail": candidate["error_detail"]},
         }
+        if candidate.get("format_schema") == MANIFEST_SCHEMA_V1:
+            with self.db.connect() as db:
+                row = db.execute(
+                    "SELECT * FROM release_candidate_interactions WHERE release_candidate_id=?",
+                    (candidate["release_candidate_id"],),
+                ).fetchone()
+            interaction = dict(row) if row is not None else None
+            result["format_schema"] = MANIFEST_SCHEMA_V1
+            result["application"]["interaction"] = None if interaction is None else {
+                "schema": interaction["schema"], "source_member": interaction["source_member"],
+                "source_sha256": interaction["source_sha256"], "member": interaction["canonical_member"],
+                "canonical_sha256": interaction["canonical_sha256"],
+                "canonical_size_bytes": interaction["canonical_size_bytes"], "operation_id": interaction["operation_id"],
+            }
+            result["handoff"] = json.loads(candidate["manifest_json"])["handoff"]
+        return result

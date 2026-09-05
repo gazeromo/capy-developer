@@ -13,11 +13,16 @@ from .errors import DeveloperError
 from .util import HEX40, HEX64, stable_digest
 
 
-ACCEPTED_DEVKIT_MAIN = "8c4fec7f814a62ded441786b8eba28af14d1aa2d"
-ACCEPTED_BUNDLE_SHA256 = "dc2c27611d12ecb12e1a929252a51e177537d8f0e4fba86de5ed93edae886d5c"
-ACCEPTED_WHEEL_SHA256 = "46f0b7865491054991b855d3bf709a445b7cc730077aaca2059cc095c685b30d"
-ACCEPTED_SOURCE_COMMIT = "e4462973d94584a75a1596f1b06a425a8da7f20d"
+ACCEPTED_DEVKIT_MAIN = "24b6418c0ee2dada5a08f78ff6752bb43f9d8e16"
+ACCEPTED_BUNDLE_SHA256 = "12e492ec2dce11b4227d10bdf9385705a60bc12a88fec0073ff48a87b2a57a57"
+ACCEPTED_WHEEL_SHA256 = "56c9f6c930b21d600a2e8f10da7a3e92f5cfbf1c6d91490d170d1790e5555603"
+ACCEPTED_SOURCE_COMMIT = "1211861edbb512aaefae8c20b207f590fac34c35"
 ACCEPTED_REPOSITORY = "gazeromo/capy-script-devkit"
+
+PREVIOUS_DEVKIT_MAIN = "8c4fec7f814a62ded441786b8eba28af14d1aa2d"
+PREVIOUS_BUNDLE_SHA256 = "dc2c27611d12ecb12e1a929252a51e177537d8f0e4fba86de5ed93edae886d5c"
+PREVIOUS_WHEEL_SHA256 = "46f0b7865491054991b855d3bf709a445b7cc730077aaca2059cc095c685b30d"
+PREVIOUS_SOURCE_COMMIT = "e4462973d94584a75a1596f1b06a425a8da7f20d"
 
 HISTORICAL_DEVKIT_MAIN = "0cf018faa02ade73ab0805aa0617c55ce36fa7b1"
 HISTORICAL_BUNDLE_SHA256 = "cb7e4073a99bf8596509af02f466f90b5792d1d8075dffab0f27bbb2df0679e8"
@@ -25,7 +30,8 @@ HISTORICAL_WHEEL_SHA256 = "165faba51b56b667b087228e1c556b1e2369d0e61bb469785ddff
 HISTORICAL_SOURCE_COMMIT = "55fc109b5f494086c03560794e7be74d75f1d93f"
 
 BUNDLED_RELEASES = {
-    ACCEPTED_BUNDLE_SHA256: "accepted-authoring-bundle.zip",
+    ACCEPTED_BUNDLE_SHA256: "interaction-authoring-bundle-12e492ec.zip",
+    PREVIOUS_BUNDLE_SHA256: "accepted-authoring-bundle.zip",
     HISTORICAL_BUNDLE_SHA256: "historical-authoring-bundle-cb7e4073.zip",
 }
 
@@ -36,12 +42,24 @@ TRUSTED_RELEASES = {
         "bundle_sha256": ACCEPTED_BUNDLE_SHA256,
         "wheel_sha256": ACCEPTED_WHEEL_SHA256,
         "source_commit": ACCEPTED_SOURCE_COMMIT,
+        "interaction_contract": "capy.application-interaction/dev-v0",
+        "bundle_schema": "capy.devkit-authoring-bundle/v1",
+    },
+    PREVIOUS_DEVKIT_MAIN: {
+        "repository": ACCEPTED_REPOSITORY,
+        "bundle_sha256": PREVIOUS_BUNDLE_SHA256,
+        "wheel_sha256": PREVIOUS_WHEEL_SHA256,
+        "source_commit": PREVIOUS_SOURCE_COMMIT,
+        "interaction_contract": None,
+        "bundle_schema": "capy.devkit-authoring-bundle/v0",
     },
     HISTORICAL_DEVKIT_MAIN: {
         "repository": ACCEPTED_REPOSITORY,
         "bundle_sha256": HISTORICAL_BUNDLE_SHA256,
         "wheel_sha256": HISTORICAL_WHEEL_SHA256,
         "source_commit": HISTORICAL_SOURCE_COMMIT,
+        "interaction_contract": None,
+        "bundle_schema": "capy.devkit-authoring-bundle/v0",
     },
 }
 
@@ -63,6 +81,7 @@ class ToolchainLock:
     wheel: str | None
     wheel_sha256: str | None
     bundle_sha256: str | None
+    interaction_contract: str | None
     source_path: str | None
     lock_status: str
     detail: str | None = None
@@ -76,6 +95,7 @@ class ToolchainLock:
             "wheel": self.wheel,
             "wheel_sha256": self.wheel_sha256,
             "authoring_bundle_sha256": self.bundle_sha256,
+            "interaction_contract": self.interaction_contract,
             "lock_source_path": self.source_path,
             "lock_status": self.lock_status,
             "availability": availability,
@@ -96,6 +116,7 @@ class ResolvedToolchain:
     def as_dict(self) -> dict:
         return {
             "contract": self.lock.contract,
+            "interaction_contract": self.lock.interaction_contract,
             "lock_digest": self.lock_digest,
             "release_binding_commit": self.lock.commit,
             "implementation_commit": self.manifest.get("source_commit"),
@@ -112,6 +133,10 @@ def _valid(lock: ToolchainLock) -> bool:
         and bool(lock.wheel)
         and bool(lock.wheel_sha256 and HEX64.fullmatch(lock.wheel_sha256))
         and (lock.bundle_sha256 is None or HEX64.fullmatch(lock.bundle_sha256) is not None)
+        and (
+            (lock.schema == "capy.toolchain-lock/v1" and lock.interaction_contract == "capy.application-interaction/dev-v0")
+            or (lock.schema in {"capy.toolchain-lock/v0", "legacy-devkit-lock/v0"} and lock.interaction_contract is None)
+        )
     )
 
 
@@ -120,7 +145,7 @@ def read_lock(checkout: Path) -> ToolchainLock:
     legacy = checkout / "DEVKIT.lock"
     selected = current if current.is_file() else legacy if legacy.is_file() else None
     if selected is None:
-        return ToolchainLock(None, None, None, None, None, None, None, None, "UNBOUND", "no DevKit lock declared")
+        return ToolchainLock(None, None, None, None, None, None, None, None, None, "UNBOUND", "no DevKit lock declared")
     try:
         resolved = selected.resolve(strict=True)
         resolved.relative_to(checkout.resolve(strict=True))
@@ -128,24 +153,24 @@ def read_lock(checkout: Path) -> ToolchainLock:
             raise ValueError("toolchain lock must be a regular candidate file")
     except (OSError, ValueError) as exc:
         return ToolchainLock(
-            None, None, None, None, None, None, None, str(selected), "INVALID",
+            None, None, None, None, None, None, None, None, str(selected), "INVALID",
             "toolchain lock escapes the candidate or is not a regular file",
         )
     try:
         data = tomllib.loads(resolved.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
-        return ToolchainLock(None, None, None, None, None, None, None, str(selected), "INVALID", str(exc))
+        return ToolchainLock(None, None, None, None, None, None, None, None, str(selected), "INVALID", str(exc))
     if selected.name == "DEVKIT.lock":
         lock = ToolchainLock(
             "legacy-devkit-lock/v0", data.get("contract"), data.get("repository"),
             data.get("commit"), data.get("wheel"), data.get("wheel_sha256"),
-            None, str(selected), "VALID",
+            None, None, str(selected), "VALID",
         )
     else:
         lock = ToolchainLock(
             data.get("schema"), data.get("contract"), data.get("devkit_repository"),
             data.get("devkit_commit"), data.get("wheel"), data.get("wheel_sha256"),
-            data.get("authoring_bundle_sha256"), str(selected), "VALID",
+            data.get("authoring_bundle_sha256"), data.get("interaction_contract"), str(selected), "VALID",
         )
     if not _valid(lock):
         return replace(lock, lock_status="INVALID", detail="lock fields are incomplete or malformed")
@@ -188,6 +213,7 @@ class ToolchainCache:
         release_binding_commit: str,
         authoring_bundle_sha256: str,
         wheel_sha256: str,
+        interaction_contract: str | None = None,
     ) -> tuple[Path, dict]:
         """Resolve immutable toolchain facts without consulting a project lock."""
         trusted = TRUSTED_RELEASES.get(release_binding_commit)
@@ -196,6 +222,7 @@ class ToolchainCache:
             or trusted is None
             or trusted["bundle_sha256"] != authoring_bundle_sha256
             or trusted["wheel_sha256"] != wheel_sha256
+            or trusted["interaction_contract"] != interaction_contract
         ):
             raise DeveloperError(
                 "TOOLCHAIN_INTEGRITY_FAILED",
@@ -209,10 +236,12 @@ class ToolchainCache:
         except OSError as exc:
             raise DeveloperError("TOOLCHAIN_UNAVAILABLE", "exact verification-recorded DevKit bytes are unavailable") from exc
         if (
-            manifest.get("contract") != contract
+            (manifest.get("contract") or manifest.get("execution_contract")) != contract
             or manifest.get("source_repository") != trusted["repository"]
             or manifest.get("source_commit") != trusted["source_commit"]
             or manifest.get("wheel_sha256") != wheel_sha256
+            or manifest.get("schema") != trusted["bundle_schema"]
+            or manifest.get("interaction_contract") != trusted["interaction_contract"]
         ):
             raise DeveloperError("TOOLCHAIN_INTEGRITY_FAILED", "DevKit authoring bundle identity is inconsistent")
         return bundle, manifest
@@ -232,7 +261,7 @@ class ToolchainCache:
                 wheel_bytes = archive.read(f"wheel/{wheel_name}")
         except (KeyError, json.JSONDecodeError, zipfile.BadZipFile) as exc:
             raise DeveloperError("DEVKIT_BUNDLE_INVALID", "DevKit bundle structure is invalid") from exc
-        if manifest.get("schema") != "capy.devkit-authoring-bundle/v0":
+        if manifest.get("schema") not in {"capy.devkit-authoring-bundle/v0", "capy.devkit-authoring-bundle/v1"}:
             raise DeveloperError("DEVKIT_BUNDLE_INVALID", "DevKit bundle schema is unsupported")
         wheel_digest = hashlib.sha256(wheel_bytes).hexdigest()
         if manifest.get("wheel_sha256") != wheel_digest:
@@ -273,12 +302,14 @@ class ToolchainCache:
                     continue
                 inspected = self._verify_bundle(candidate)
                 if (
-                    inspected.get("contract") == lock.contract
+                    (inspected.get("contract") or inspected.get("execution_contract")) == lock.contract
                     and inspected.get("wheel_filename") == lock.wheel
                     and inspected.get("wheel_sha256") == lock.wheel_sha256
                     and inspected.get("source_repository") == trusted["repository"]
                     and inspected.get("source_commit") == trusted["source_commit"]
                     and digest == trusted["bundle_sha256"]
+                    and inspected.get("schema") == trusted["bundle_schema"]
+                    and inspected.get("interaction_contract") == lock.interaction_contract
                 ):
                     bundle, manifest = candidate, inspected
                     break
@@ -309,6 +340,7 @@ class ToolchainCache:
             "wheel": lock.wheel,
             "wheel_sha256": lock.wheel_sha256,
             "authoring_bundle_sha256": lock.bundle_sha256,
+            "interaction_contract": lock.interaction_contract,
         }
         return ResolvedToolchain(
             lock, stable_digest(lock_facts), bundle, bundle_digest, wheel,
@@ -347,6 +379,8 @@ class ToolchainCache:
                     manifest.get("wheel_sha256") == lock.wheel_sha256
                     and actual_wheel_sha256 == lock.wheel_sha256
                     and sha256_file(bundle) == bundle.parent.name
+                    and manifest.get("schema") == trusted["bundle_schema"]
+                    and manifest.get("interaction_contract") == trusted["interaction_contract"]
                 ):
                     return "AVAILABLE"
             except (OSError, KeyError, json.JSONDecodeError, zipfile.BadZipFile):
@@ -369,12 +403,17 @@ class ToolchainCache:
                     text = text.replace('id = "demo.hello"', f'id = "{application_id}"', 1)
                     text = text.replace('name = "Hello"', f'name = "{name}"', 1)
                     payload = text.encode("utf-8")
+                elif relative.as_posix() == "interaction.json":
+                    interaction = json.loads(payload)
+                    interaction["application_id"] = application_id
+                    payload = (json.dumps(interaction, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
                 destination.write_bytes(payload)
 
 
 def current_lock(source_path: str | None = "capy.lock") -> ToolchainLock:
     return ToolchainLock(
-        "capy.toolchain-lock/v0", "capy.script/dev-v0", "gazeromo/capy-script-devkit",
-        ACCEPTED_DEVKIT_MAIN, "capy_script_devkit-0.0.0-py3-none-any.whl",
-        ACCEPTED_WHEEL_SHA256, ACCEPTED_BUNDLE_SHA256, source_path, "VALID",
+        "capy.toolchain-lock/v1", "capy.script/dev-v0", "gazeromo/capy-script-devkit",
+        ACCEPTED_DEVKIT_MAIN, "capy_script_devkit-0.1.0-py3-none-any.whl",
+        ACCEPTED_WHEEL_SHA256, ACCEPTED_BUNDLE_SHA256,
+        "capy.application-interaction/dev-v0", source_path, "VALID",
     )

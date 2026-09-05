@@ -70,7 +70,7 @@ TOOLS = [
     },
     {
         "name": "capy_development_verify",
-        "description": "Verify one exact clean Git commit in a READY Capy development session using that project's exact locked DevKit. This checks, tests, conforms, and packages a portable capy.script/dev-v0 application. It does not accept, publish, deploy, or activate software.",
+        "description": "Verify one exact clean Git commit using its exact locked DevKit. Interaction-aware projects also require and preserve validated interaction.json evidence; historical projects retain V0 behavior. This does not accept, publish, deploy, or activate software.",
         "inputSchema": {
             "type": "object",
             "required": ["session_id", "application_id", "candidate_commit", "idempotency_key"],
@@ -85,7 +85,7 @@ TOOLS = [
     },
     {
         "name": "capy_release_candidate_create",
-        "description": "Create one exact unaccepted release candidate from a successful verification. This does not accept, publish, install, bind, or deploy software.",
+        "description": "Create one exact unaccepted versioned release candidate from a successful verification. V1 includes the structurally verified but unaccepted interaction contract; historical V0 remains unchanged. This does not accept, publish, install, bind, or deploy software.",
         "inputSchema": {
             "type": "object", "required": ["verification_id"], "additionalProperties": False,
             "properties": {"verification_id": {"type": "string", "pattern": "^ver_[A-Za-z0-9_]+$"}},
@@ -93,7 +93,7 @@ TOOLS = [
     },
     {
         "name": "capy_release_candidate_inspect",
-        "description": "Inspect and validate one durable unaccepted release candidate. This does not accept, publish, install, bind, or deploy software.",
+        "description": "Inspect and validate one durable V0 or interaction-aware V1 unaccepted release candidate. This does not accept, publish, install, bind, or deploy software.",
         "inputSchema": {
             "type": "object", "required": ["release_candidate_id"], "additionalProperties": False,
             "properties": {"release_candidate_id": {"type": "string", "pattern": "^rc_[0-9a-f]{32}$"}},
@@ -139,7 +139,7 @@ def handle(core: DeveloperCore, message: dict) -> dict | None:
         return _response(request_id, {
             "protocolVersion": "2025-06-18",
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "capy-developer", "version": "0.3.0"},
+            "serverInfo": {"name": "capy-developer", "version": "0.4.0"},
         })
     if method == "ping":
         return _response(request_id, {})

@@ -7,7 +7,7 @@ from pathlib import Path
 from .util import utc_now
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class ClosingConnection(sqlite3.Connection):
@@ -38,7 +38,7 @@ class Database:
             ).fetchone()
             if existing:
                 current = db.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
-                if current is not None and int(current[0]) not in {1, 2, SCHEMA_VERSION}:
+                if current is not None and int(current[0]) not in {1, 2, 3, SCHEMA_VERSION}:
                     raise RuntimeError(f"unsupported database schema {current[0]}")
             db.executescript(
                 """
@@ -90,6 +90,7 @@ class Database:
                     wheel_filename TEXT,
                     wheel_sha256 TEXT,
                     authoring_bundle_sha256 TEXT,
+                    interaction_contract TEXT,
                     lock_source_path TEXT,
                     lock_status TEXT NOT NULL,
                     availability TEXT NOT NULL,
@@ -136,6 +137,8 @@ class Database:
                     release_binding_commit TEXT,
                     authoring_bundle_sha256 TEXT NOT NULL,
                     wheel_sha256 TEXT NOT NULL,
+                    pipeline_schema TEXT NOT NULL DEFAULT 'capy.development-verification-pipeline/v0',
+                    interaction_contract TEXT,
                     status TEXT NOT NULL,
                     classification TEXT,
                     started_at TEXT NOT NULL,
@@ -167,6 +170,17 @@ class Database:
                     PRIMARY KEY(verification_id, stage_order),
                     UNIQUE(verification_id, stage_name)
                 );
+                CREATE TABLE IF NOT EXISTS verification_interactions (
+                    verification_id TEXT PRIMARY KEY REFERENCES verification_attempts(verification_id),
+                    schema TEXT NOT NULL,
+                    source_member TEXT NOT NULL,
+                    source_sha256 TEXT NOT NULL,
+                    canonical_sha256 TEXT NOT NULL,
+                    canonical_size_bytes INTEGER NOT NULL,
+                    canonical_path TEXT NOT NULL,
+                    operation_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS release_candidates (
                     release_candidate_id TEXT PRIMARY KEY,
                     verification_id TEXT NOT NULL UNIQUE REFERENCES verification_attempts(verification_id),
@@ -190,6 +204,7 @@ class Database:
                     toolchain_wheel_filename TEXT NOT NULL,
                     toolchain_wheel_sha256 TEXT NOT NULL,
                     verification_receipt_sha256 TEXT NOT NULL,
+                    format_schema TEXT NOT NULL DEFAULT 'capy.application-release-candidate/v0',
                     manifest_json TEXT NOT NULL,
                     manifest_sha256 TEXT NOT NULL,
                     bundle_sha256 TEXT,
@@ -213,13 +228,47 @@ class Database:
                     size_bytes INTEGER NOT NULL,
                     PRIMARY KEY(release_candidate_id, member_path)
                 );
+                CREATE TABLE IF NOT EXISTS release_candidate_interactions (
+                    release_candidate_id TEXT PRIMARY KEY REFERENCES release_candidates(release_candidate_id),
+                    schema TEXT NOT NULL,
+                    source_member TEXT NOT NULL,
+                    source_sha256 TEXT NOT NULL,
+                    canonical_member TEXT NOT NULL,
+                    canonical_sha256 TEXT NOT NULL,
+                    canonical_size_bytes INTEGER NOT NULL,
+                    operation_id TEXT NOT NULL
+                );
                 """
+            )
+            self._add_column(db, "toolchain_locks", "interaction_contract", "TEXT")
+            self._add_column(
+                db, "verification_attempts", "pipeline_schema",
+                "TEXT NOT NULL DEFAULT 'capy.development-verification-pipeline/v0'",
+            )
+            self._add_column(db, "verification_attempts", "interaction_contract", "TEXT")
+            self._add_column(
+                db, "release_candidates", "format_schema",
+                "TEXT NOT NULL DEFAULT 'capy.application-release-candidate/v0'",
+            )
+            db.execute(
+                "UPDATE verification_attempts SET pipeline_schema='capy.development-verification-pipeline/v0' "
+                "WHERE pipeline_schema IS NULL OR pipeline_schema=''"
+            )
+            db.execute(
+                "UPDATE release_candidates SET format_schema='capy.application-release-candidate/v0' "
+                "WHERE format_schema IS NULL OR format_schema=''"
             )
             current = db.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
             if current is None:
                 db.execute("INSERT INTO metadata VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
-            elif int(current[0]) in {1, 2}:
+            elif int(current[0]) in {1, 2, 3}:
                 db.execute("UPDATE metadata SET value=? WHERE key='schema_version'", (str(SCHEMA_VERSION),))
+
+    @staticmethod
+    def _add_column(db: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     @staticmethod
     def row(row: sqlite3.Row | None) -> dict | None:

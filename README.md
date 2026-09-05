@@ -28,15 +28,22 @@ capy-dev mcp
 
 The process working directory is never a project-selection input. Existing and
 new project intent are explicit. Verification is bound to one exact clean
-commit and runs the project's exact locally available locked DevKit offline;
+commit and runs the project's exact locally available locked DevKit offline.
+New projects use `capy.toolchain-lock/v1`: verification adds deterministic
+cross-contract validation of root `interaction.json`, preserves its canonical
+bytes, and returns the path-free V1 interaction identity. Legacy and V0 locks
+retain their exact nine-stage behavior and are never silently upgraded;
 it does not accept, publish, install, or deploy the candidate. Capy runtime
 source, production deployment, and coding-agent launch are outside this
 repository.
 
 A passed verification can be converted into one deterministic, self-contained
-`.capyrc` handoff object using only its verification ID. That object remains an
+`.capyrc` handoff object using only its verification ID. Interaction-aware V1
+candidates have exactly five members and carry both source-form
+`interaction.json` inside the unchanged application archive and a separately
+addressable canonical interaction projection. That object remains an
 unaccepted release candidate: Capy Developer does not accept, publish, install,
 bind, or deploy it.
 
-See [docs/DIRECTION.md](docs/DIRECTION.md) and
-[campaigns/developer_foundation_v0/PLAN.md](campaigns/developer_foundation_v0/PLAN.md).
+See [docs/DIRECTION.md](docs/DIRECTION.md) and the frozen interaction-contract
+campaign plan in `campaigns/developer_interaction_contract_v0/PLAN.md`.

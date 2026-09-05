@@ -55,7 +55,7 @@ class DeveloperCore:
         return {
             "schema": "capy.developer-doctor/v0",
             "ok": True,
-            "version": "0.3.0",
+            "version": "0.4.0",
             "database_schema": SCHEMA_VERSION,
             "git": git_version,
             "roots": {
@@ -71,8 +71,8 @@ class DeveloperCore:
             },
             "release_candidate": {
                 "bundle_format": "zip/.capyrc",
-                "manifest_schema": "capy.application-release-candidate/v0",
-                "receipt_schema": "capy.development-verification-receipt/v0",
+                "manifest_schema": "capy.application-release-candidate/v1",
+                "receipt_schema": "capy.development-verification-receipt/v1",
                 "acceptance": "not_implemented",
             },
         }
@@ -168,7 +168,7 @@ class DeveloperCore:
                 relative_lock = str(Path(lock.source_path).resolve().relative_to(checkout.resolve()))
                 lock = ToolchainLock(
                     lock.schema, lock.contract, lock.repository, lock.commit, lock.wheel,
-                    lock.wheel_sha256, lock.bundle_sha256, relative_lock,
+                    lock.wheel_sha256, lock.bundle_sha256, lock.interaction_contract, relative_lock,
                     lock.lock_status, lock.detail,
                 )
             except ValueError as exc:
@@ -228,16 +228,17 @@ class DeveloperCore:
 
     def _store_lock(self, db: sqlite3.Connection, project_id: str, lock: ToolchainLock, availability: str) -> None:
         db.execute(
-            """INSERT INTO toolchain_locks VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """INSERT INTO toolchain_locks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(project_id) DO UPDATE SET
                schema=excluded.schema,contract=excluded.contract,
                devkit_repository=excluded.devkit_repository,devkit_commit=excluded.devkit_commit,
                wheel_filename=excluded.wheel_filename,wheel_sha256=excluded.wheel_sha256,
                authoring_bundle_sha256=excluded.authoring_bundle_sha256,
+               interaction_contract=excluded.interaction_contract,
                lock_source_path=excluded.lock_source_path,lock_status=excluded.lock_status,
                availability=excluded.availability,detail=excluded.detail""",
             (project_id, lock.schema, lock.contract, lock.repository, lock.commit,
-             lock.wheel, lock.wheel_sha256, lock.bundle_sha256, lock.source_path,
+             lock.wheel, lock.wheel_sha256, lock.bundle_sha256, lock.interaction_contract, lock.source_path,
              lock.lock_status, availability, lock.detail),
         )
 
@@ -461,8 +462,9 @@ class DeveloperCore:
             )
             lock = current_lock()
             (seed / "capy.lock").write_text(
-                'schema = "capy.toolchain-lock/v0"\n'
+                'schema = "capy.toolchain-lock/v1"\n'
                 f'contract = "{lock.contract}"\n'
+                f'interaction_contract = "{lock.interaction_contract}"\n'
                 f'devkit_repository = "{lock.repository}"\n'
                 f'devkit_commit = "{lock.commit}"\n'
                 f'wheel = "{lock.wheel}"\n'
@@ -655,7 +657,7 @@ class DeveloperCore:
             lock = ToolchainLock(
                 row["schema"], row["contract"], row["devkit_repository"], row["devkit_commit"],
                 row["wheel_filename"], row["wheel_sha256"], row["authoring_bundle_sha256"],
-                row["lock_source_path"], row["lock_status"], row["detail"],
+                row["interaction_contract"], row["lock_source_path"], row["lock_status"], row["detail"],
             )
             availability = self.toolchains.availability(lock)
             if availability != row["availability"]:
