@@ -5,6 +5,7 @@ import json
 import os
 import re
 import socket
+import stat
 import time
 import uuid
 from contextlib import contextmanager
@@ -54,6 +55,29 @@ def safe_resolve(path: Path, *, root: Path | None = None, must_exist: bool = Fal
         except ValueError as exc:
             raise DeveloperError("MANAGED_PATH_ESCAPE", "managed path escapes its configured root") from exc
     return resolved
+
+
+def read_regular_bytes(path: Path) -> bytes:
+    """Read one durable regular file without following a mutable symlink alias."""
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode):
+        raise OSError("managed evidence is not a regular non-symlink file")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            raise OSError("managed evidence changed type while opening")
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            payload = stream.read()
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    after = path.lstat()
+    if not stat.S_ISREG(after.st_mode) or (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+        raise OSError("managed evidence changed identity while reading")
+    return payload
 
 
 def path_uri(path: Path) -> str:

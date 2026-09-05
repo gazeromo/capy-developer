@@ -5,6 +5,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import tempfile
 import tomllib
 import zipfile
@@ -27,6 +28,7 @@ from .util import (
     VERIFICATION_ID,
     exclusive_lock,
     path_uri,
+    read_regular_bytes,
     safe_resolve,
     utc_now,
 )
@@ -922,10 +924,17 @@ class ReleaseCandidateService:
             if interaction is None or application.get("interaction_bytes") is None:
                 raise DeveloperError("INTERACTION_EVIDENCE_MISSING", "V1 verification interaction evidence is unavailable")
             try:
-                interaction_path = safe_resolve(
-                    Path(interaction["canonical_path"]), root=self.config.verification_interactions_root
-                )
-                interaction_bytes = interaction_path.read_bytes()
+                interaction_root = self.config.verification_interactions_root.expanduser().absolute().resolve()
+                interaction_path = interaction_root / interaction["canonical_sha256"] / "interaction.json"
+                if Path(interaction["canonical_path"]) != interaction_path:
+                    raise DeveloperError(
+                        "INTERACTION_EVIDENCE_MISSING",
+                        "canonical interaction evidence path is not content-addressed",
+                    )
+                digest_status = interaction_path.parent.lstat()
+                if not stat.S_ISDIR(digest_status.st_mode) or stat.S_ISLNK(digest_status.st_mode):
+                    raise OSError("canonical interaction digest path is not a real directory")
+                interaction_bytes = read_regular_bytes(interaction_path)
             except (DeveloperError, OSError, ValueError) as exc:
                 raise DeveloperError("INTERACTION_EVIDENCE_MISSING", "canonical interaction evidence is unavailable") from exc
             if digest_bytes(interaction_bytes) != interaction["canonical_sha256"] or len(interaction_bytes) != interaction["canonical_size_bytes"]:

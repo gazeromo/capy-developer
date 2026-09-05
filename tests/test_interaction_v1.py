@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import sqlite3
 import tempfile
@@ -147,6 +148,19 @@ class InteractionV1Tests(unittest.TestCase):
         with self.core.db.connect() as db:
             self.assertEqual(0, db.execute("SELECT count(*) FROM release_candidates").fetchone()[0])
 
+    @unittest.skipIf(os.name == "nt", "symlink creation is not guaranteed for Windows CI users")
+    def test_post_verification_interaction_symlink_denies_candidate(self):
+        session, workspace = self.start()
+        verification = self.verify(session, workspace)
+        with self.core.db.connect() as db:
+            canonical = Path(db.execute("SELECT canonical_path FROM verification_interactions").fetchone()["canonical_path"])
+        alias = self.config.verification_interactions_root / "mutable-after-verification.json"
+        canonical.replace(alias)
+        canonical.symlink_to(alias)
+        with self.assertRaises(DeveloperError) as caught:
+            self.core.create_release_candidate(verification["verification_id"])
+        self.assertEqual("INTERACTION_EVIDENCE_MISSING", caught.exception.code)
+
     def test_conflicting_interaction_preservation_path_is_causal_failure(self):
         session, workspace = self.start()
         document = json.loads((workspace / "interaction.json").read_bytes())
@@ -165,6 +179,34 @@ class InteractionV1Tests(unittest.TestCase):
         self.assertEqual(["interaction_preserve"], [stage["name"] for stage in failed])
         with self.core.db.connect() as db:
             self.assertEqual(0, db.execute("SELECT count(*) FROM verification_interactions").fetchone()[0])
+
+    @unittest.skipIf(os.name == "nt", "symlink creation is not guaranteed for Windows CI users")
+    def test_symlinked_interaction_member_is_causal_failure(self):
+        session, workspace = self.start()
+        document = json.loads((workspace / "interaction.json").read_bytes())
+        canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        digest_root = self.config.verification_interactions_root / hashlib.sha256(canonical).hexdigest()
+        digest_root.mkdir(parents=True)
+        alias = self.config.verification_interactions_root / "mutable-interaction.json"
+        alias.write_bytes(canonical)
+        (digest_root / "interaction.json").symlink_to(alias)
+        result = self.verify(session, workspace)
+        self.assertEqual(("FAILED", "INTERACTION_CONTRACT_FAILED"), (result["status"], result["classification"]))
+        self.assertEqual("interaction_preserve", next(stage["name"] for stage in result["stages"] if stage["status"] == "FAILED"))
+
+    @unittest.skipIf(os.name == "nt", "symlink creation is not guaranteed for Windows CI users")
+    def test_symlinked_interaction_digest_directory_is_causal_failure(self):
+        session, workspace = self.start()
+        document = json.loads((workspace / "interaction.json").read_bytes())
+        canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        root = self.config.verification_interactions_root
+        root.mkdir(parents=True, exist_ok=True)
+        alias = root / "mutable-digest-directory"
+        alias.mkdir()
+        (root / hashlib.sha256(canonical).hexdigest()).symlink_to(alias, target_is_directory=True)
+        result = self.verify(session, workspace)
+        self.assertEqual(("FAILED", "INTERACTION_CONTRACT_FAILED"), (result["status"], result["classification"]))
+        self.assertEqual("interaction_preserve", next(stage["name"] for stage in result["stages"] if stage["status"] == "FAILED"))
 
     def test_v1_candidate_uses_durable_verified_bytes_after_current_source_drifts(self):
         session, workspace = self.start()

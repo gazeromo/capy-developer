@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -27,6 +28,7 @@ from .util import (
     new_id,
     operation_lock,
     path_uri,
+    read_regular_bytes,
     safe_resolve,
     stable_digest,
     utc_now,
@@ -621,15 +623,20 @@ class VerificationService:
         )
         destination = None
         try:
-            destination = safe_resolve(
-                self.config.verification_interactions_root / canonical_sha256 / "interaction.json",
-                root=self.config.verification_interactions_root,
-            )
+            root = self.config.verification_interactions_root.expanduser().absolute().resolve()
+            digest_root = root / canonical_sha256
+            destination = digest_root / "interaction.json"
             if passed:
-                destination.parent.mkdir(parents=True, exist_ok=True)
+                root.mkdir(parents=True, exist_ok=True)
+                try:
+                    digest_status = digest_root.lstat()
+                    if not stat.S_ISDIR(digest_status.st_mode) or stat.S_ISLNK(digest_status.st_mode):
+                        passed = False
+                except FileNotFoundError:
+                    digest_root.mkdir()
                 if destination.is_symlink() or (destination.exists() and not destination.is_file()):
                     passed = False
-                elif destination.exists() and destination.read_bytes() != canonical:
+                elif destination.exists() and read_regular_bytes(destination) != canonical:
                     passed = False
                 elif not destination.exists():
                     descriptor, temporary_name = tempfile.mkstemp(
@@ -647,7 +654,7 @@ class VerificationService:
                         temporary.unlink(missing_ok=True)
                     if (
                         destination.is_symlink() or not destination.is_file()
-                        or destination.read_bytes() != canonical
+                        or read_regular_bytes(destination) != canonical
                     ):
                         passed = False
         except (OSError, DeveloperError):
