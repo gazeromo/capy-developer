@@ -173,6 +173,7 @@ def inspect_application_archive(payload: bytes, expected_id: str | None = None, 
         "contract": contract,
         "descriptor_sha256": digest_bytes(descriptor_bytes),
         "descriptor": descriptor,
+        "member_names": {info.filename for info in infos},
         "interaction_bytes": interaction_bytes,
     }
 
@@ -522,10 +523,11 @@ def _interaction_leaves(schema: dict, prefix: tuple[str, ...] = (), required: bo
         if (
             not isinstance(required_names, list)
             or any(not isinstance(name, str) for name in required_names)
-            or len(set(required_names)) != len(required_names)
             or not set(required_names) <= set(properties)
         ):
             raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction requiredness is invalid")
+        if prefix and not properties:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction nested input object is empty")
         leaves: dict[str, tuple[dict, bool]] = {}
         for name, child in properties.items():
             if re.fullmatch(r"[a-z][a-z0-9_]*", name) is None:
@@ -534,6 +536,10 @@ def _interaction_leaves(schema: dict, prefix: tuple[str, ...] = (), required: bo
         return leaves
     if schema.get("type") not in {"string", "integer", "number", "boolean"} or not prefix:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction input leaf is unsupported")
+    if schema.get("type") == "string" and "enum" in schema:
+        choices = schema["enum"]
+        if not isinstance(choices, list) or not choices or any(not isinstance(choice, str) for choice in choices) or len(set(choices)) != len(choices):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction choice field is invalid")
     return {".".join(prefix): (schema, required)}
 
 
@@ -592,15 +598,7 @@ def _interaction_path(value: object) -> bool:
 
 
 def _interaction_artifact_name(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and 1 <= len(value) <= 120
-        and value not in {".", ".."}
-        and not value.startswith(".")
-        and "/" not in value
-        and "\\" not in value
-        and not any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value)
-    )
+    return isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", value) is not None
 
 
 def _interaction_object(pairs: list[tuple[str, object]]) -> dict:
@@ -622,6 +620,80 @@ def _interaction_bounded(value: object, depth: int = 0) -> bool:
     return not isinstance(value, float) or math.isfinite(value)
 
 
+def _check_interaction_schema(schema: object) -> None:
+    keywords = {
+        "type", "required", "additionalProperties", "properties", "items", "enum",
+        "minItems", "maxItems", "minLength", "maxLength", "minimum", "maximum", "pattern",
+    }
+    kinds = {"object", "array", "string", "integer", "number", "boolean", "null"}
+    if not isinstance(schema, dict) or not isinstance(schema.get("type"), str) or set(schema) - keywords or schema["type"] not in kinds:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction schema is invalid")
+    if "enum" in schema and (not isinstance(schema["enum"], list) or not schema["enum"]):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction schema enum is invalid")
+    if schema["type"] == "object":
+        properties = schema.get("properties", {})
+        required = schema.get("required", [])
+        if not isinstance(properties, dict) or not isinstance(required, list) or any(not isinstance(item, str) for item in required) or not set(required) <= set(properties) or not isinstance(schema.get("additionalProperties", True), bool):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction object schema is invalid")
+        for child in properties.values():
+            _check_interaction_schema(child)
+    if schema["type"] == "array" and "items" in schema:
+        _check_interaction_schema(schema["items"])
+    for key in ("minItems", "maxItems", "minLength", "maxLength"):
+        if key in schema and (type(schema[key]) is not int or schema[key] < 0):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction schema bound is invalid")
+    for key in ("minimum", "maximum"):
+        if key in schema and (not isinstance(schema[key], (int, float)) or isinstance(schema[key], bool)):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction schema bound is invalid")
+    if "pattern" in schema:
+        try:
+            re.compile(schema["pattern"])
+        except (TypeError, re.error) as exc:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction schema pattern is invalid") from exc
+
+
+def _validate_interaction_descriptor(descriptor: object, member_names: set[str]) -> dict:
+    fields = {
+        "schema", "id", "name", "description", "entrypoint", "side_effect",
+        "timeout_seconds", "memory_mb", "state_required", "resources", "connections",
+        "input_schema", "result_schema",
+    }
+    if not isinstance(descriptor, dict) or set(descriptor) != fields:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor shape is invalid")
+    if descriptor["schema"] != "capy.script/dev-v0" or not _interaction_identifier(descriptor["id"]):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor identity is invalid")
+    if any(not isinstance(descriptor[key], str) or not descriptor[key].strip() or len(descriptor[key]) > 512 for key in ("name", "description")):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor text is invalid")
+    entrypoint = descriptor["entrypoint"]
+    if not isinstance(entrypoint, str) or PurePosixPath(entrypoint).name != entrypoint or entrypoint not in member_names:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor entrypoint is invalid")
+    if descriptor["side_effect"] not in {"read_only", "artifact_generation", "scope_state_mutation", "external_effect"}:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor side effect is invalid")
+    for key, minimum, maximum in (("timeout_seconds", 1, 300), ("memory_mb", 32, 2048)):
+        if type(descriptor[key]) is not int or not minimum <= descriptor[key] <= maximum:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor limit is invalid")
+    if type(descriptor["state_required"]) is not bool or (descriptor["state_required"] and descriptor["side_effect"] not in {"scope_state_mutation", "external_effect"}):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor state requirement is invalid")
+    resources = descriptor["resources"]
+    if not isinstance(resources, list):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor resources are invalid")
+    names: set[str] = set()
+    for item in resources:
+        if not isinstance(item, dict) or set(item) != {"name", "required", "min_items", "max_items"}:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor resource is invalid")
+        name = item["name"]
+        if not isinstance(name, str) or re.fullmatch(r"[a-z][a-z0-9_]*", name) is None or name in names:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor resource name is invalid")
+        names.add(name)
+        if type(item["required"]) is not bool or type(item["min_items"]) is not int or type(item["max_items"]) is not int or item["min_items"] < 0 or item["max_items"] < item["min_items"] or item["max_items"] > 100 or (item["required"] and item["min_items"] < 1):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor resource count is invalid")
+    if descriptor["connections"] != []:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor connections are unsupported")
+    _check_interaction_schema(descriptor["input_schema"])
+    _check_interaction_schema(descriptor["result_schema"])
+    return descriptor
+
+
 def _result_path(schema: dict, dotted: str) -> dict | None:
     node = schema
     for segment in dotted.split("."):
@@ -631,7 +703,7 @@ def _result_path(schema: dict, dotted: str) -> dict | None:
     return node
 
 
-def _validate_interaction_contract(descriptor: dict, source: bytes, canonical: bytes) -> dict:
+def _validate_interaction_contract(descriptor: dict, source: bytes, canonical: bytes, member_names: set[str]) -> dict:
     try:
         document = json.loads(
             source, object_pairs_hook=_interaction_object,
@@ -649,7 +721,8 @@ def _validate_interaction_contract(descriptor: dict, source: bytes, canonical: b
         or document["application_id"] != descriptor.get("id")
     ):
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction application identity is invalid")
-    if descriptor.get("schema") != "capy.script/dev-v0" or descriptor.get("state_required") is not False or descriptor.get("connections") != [] or descriptor.get("side_effect") not in {"read_only", "artifact_generation"}:
+    descriptor = _validate_interaction_descriptor(descriptor, member_names)
+    if descriptor.get("state_required") is not False or descriptor.get("side_effect") not in {"read_only", "artifact_generation"}:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction executable eligibility is invalid")
     if (
         not _interaction_text(document["title"], 120)
@@ -716,7 +789,13 @@ def _validate_interaction_contract(descriptor: dict, source: bytes, canonical: b
             raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction resource field coverage is invalid")
         observed_resources.add(field["slot"])
         rule = resources[field["slot"]]
-        if (field.get("required"), field.get("minimum_count"), field.get("maximum_count"), field.get("input_kind")) != (rule["required"], rule["min_items"], rule["max_items"], "file"):
+        if (
+            type(field.get("required")) is not bool
+            or type(field.get("minimum_count")) is not int
+            or type(field.get("maximum_count")) is not int
+            or (field["required"], field["minimum_count"], field["maximum_count"], field.get("input_kind"))
+            != (rule["required"], rule["min_items"], rule["max_items"], "file")
+        ):
             raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction resource field semantics are invalid")
     if observed_resources != set(resources):
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction resource fields are incomplete")
@@ -755,7 +834,13 @@ def _validate_interaction_contract(descriptor: dict, source: bytes, canonical: b
     expected_files = expected_node.get("items", {}).get("enum") if expected_node.get("type") == "array" else None
     if descriptor["side_effect"] == "read_only" and filenames:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "read-only interaction advertises artifacts")
-    if descriptor["side_effect"] == "artifact_generation" and filenames != expected_files:
+    if descriptor["side_effect"] == "artifact_generation" and (
+        not isinstance(expected_files, list)
+        or not expected_files
+        or any(not _interaction_artifact_name(item) for item in expected_files)
+        or len(set(expected_files)) != len(expected_files)
+        or filenames != expected_files
+    ):
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction artifact list differs from executable truth")
     if result.get("presentation") != ("artifact_result" if filenames else "facts"):
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction presentation is invalid")
@@ -800,7 +885,11 @@ def _validate_v1_bundle_bytes(payload: bytes) -> dict:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate JSON metadata is not canonical")
     _require_keys(manifest, {"schema", "release_candidate_id", "identity_sha256", "project", "source", "application", "toolchain", "verification", "handoff", "verified_at"}, "manifest")
     _require_keys(receipt, {"schema", "pipeline", "verification_id", "status", "classification", "session_id", "project_id", "application_id", "source", "toolchain", "interaction_contract", "stages", "application_archive", "verified_at"}, "receipt")
-    if manifest["schema"] != MANIFEST_SCHEMA_V1 or receipt["schema"] != RECEIPT_SCHEMA_V1 or receipt["pipeline"] != PIPELINE_V1:
+    if (
+        manifest["schema"] != MANIFEST_SCHEMA_V1 or receipt["schema"] != RECEIPT_SCHEMA_V1
+        or receipt["pipeline"] != PIPELINE_V1
+        or not isinstance(manifest["verified_at"], str) or not manifest["verified_at"].endswith("Z")
+    ):
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 schema identity is invalid")
     _require_keys(manifest["project"], {"project_id"}, "manifest project")
     _require_keys(manifest["source"], {"repository", "commit", "tree", "base_commit"}, "manifest source")
@@ -866,7 +955,7 @@ def _validate_v1_bundle_bytes(payload: bytes) -> dict:
     application = inspect_application_archive(members[MEMBERS_V1[1]], app["id"], app["contract"])
     if application["descriptor_sha256"] != app["descriptor_sha256"] or application["interaction_bytes"] is None:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "application archive identity is invalid")
-    validated_interaction = _validate_interaction_contract(application["descriptor"], application["interaction_bytes"], members[MEMBERS_V1[2]])
+    validated_interaction = _validate_interaction_contract(application["descriptor"], application["interaction_bytes"], members[MEMBERS_V1[2]], application["member_names"])
     if interaction_binding["schema"] != validated_interaction["schema"] or interaction_binding["operation_id"] != validated_interaction["operation_id"] or interaction_binding["source_member"] != "interaction.json" or interaction_binding["source_sha256"] != digest_bytes(application["interaction_bytes"]):
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction source binding is invalid")
     toolchain = inspect_authoring_bundle(members[MEMBERS_V1[4]])
@@ -887,7 +976,7 @@ def _validate_v1_bundle_bytes(payload: bytes) -> dict:
     expected_handoff = {"verification":"passed","independent_acceptance":"required","interaction_contract":"included_unaccepted","state_migration":"not_assessed","rollback":"not_assessed","runtime_version_digest":"not_assigned","publication":"not_performed","installation":"not_performed","binding":"not_performed","deployment":"not_performed","publisher_signature":"not_present","secret_scan":"not_performed","runtime_import":"not_performed"}
     if manifest.get("handoff") != expected_handoff:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 handoff claims were weakened or changed")
-    if [stage.get("name") for stage in receipt.get("stages", [])] != list(STAGES_V1) or any(stage.get("status") != "PASSED" for stage in receipt.get("stages", [])):
+    if not isinstance(receipt.get("stages"), list) or [stage.get("name") for stage in receipt["stages"] if isinstance(stage, dict)] != list(STAGES_V1) or any(not isinstance(stage, dict) or stage.get("status") != "PASSED" for stage in receipt["stages"]):
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 stage sequence is invalid")
     stage_keys = {"name", "status", "exit_code", "stored_stdout_sha256", "stored_stdout_bytes", "stored_stderr_sha256", "stored_stderr_bytes", "stdout_truncated_bytes", "stderr_truncated_bytes", "facts"}
     for stage in receipt["stages"]:
@@ -1169,7 +1258,10 @@ class ReleaseCandidateService:
                 raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "canonical interaction evidence differs from its record")
             if digest_bytes(application["interaction_bytes"]) != interaction["source_sha256"]:
                 raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "application archive interaction source differs from verification")
-            validated = _validate_interaction_contract(application["descriptor"], application["interaction_bytes"], interaction_bytes)
+            validated = _validate_interaction_contract(
+                application["descriptor"], application["interaction_bytes"], interaction_bytes,
+                application["member_names"],
+            )
             if validated != {"schema": interaction["schema"], "operation_id": interaction["operation_id"]}:
                 raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "canonical interaction identity differs from verification")
         try:

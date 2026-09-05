@@ -23,7 +23,7 @@ from capy_developer.database import Database, SCHEMA_VERSION
 from capy_developer.errors import DeveloperError
 from capy_developer.git import run_git
 from capy_developer.mcp import handle
-from capy_developer.release_candidate import MEMBERS_V1, validate_bundle_bytes
+from capy_developer.release_candidate import MEMBERS_V1, _interaction_artifact_name, validate_bundle_bytes
 from capy_developer.toolchain import (
     ACCEPTED_BUNDLE_SHA256, ACCEPTED_DEVKIT_MAIN, ACCEPTED_WHEEL_SHA256,
 )
@@ -69,6 +69,11 @@ class InteractionV1Tests(unittest.TestCase):
     def commit(self, workspace: Path, message: str) -> None:
         run_git(["add", "--all"], cwd=workspace)
         run_git(["commit", "-m", message], cwd=workspace)
+
+    def test_artifact_filename_uses_exact_devkit_boundary(self):
+        self.assertTrue(_interaction_artifact_name("a" * 128))
+        self.assertFalse(_interaction_artifact_name("a" * 129))
+        self.assertFalse(_interaction_artifact_name("artifact name.txt"))
 
     def test_new_project_uses_exact_v1_lock_and_template(self):
         session, workspace = self.start()
@@ -262,7 +267,7 @@ class InteractionV1Tests(unittest.TestCase):
         matrix = subprocess.run([sys.executable, str(campaign / "tamper_matrix.py"), str(artifact_candidate)], cwd=self.root, text=True, capture_output=True)
         self.assertEqual(0, matrix.returncode, matrix.stdout + matrix.stderr)
         facts = json.loads(matrix.stdout)
-        self.assertEqual((49, 49, []), (facts["cases"], facts["rejected"], facts["unexpected_accepts"]))
+        self.assertEqual((53, 53, []), (facts["cases"], facts["rejected"], facts["unexpected_accepts"]))
         sys.path.insert(0, str(campaign))
         try:
             spec = importlib.util.spec_from_file_location("capy_v1_tamper_matrix", campaign / "tamper_matrix.py")
@@ -274,6 +279,15 @@ class InteractionV1Tests(unittest.TestCase):
         for name, payload in module.cases(artifact_candidate.read_bytes()).items():
             with self.subTest(production_validator=name), self.assertRaises(DeveloperError):
                 validate_bundle_bytes(payload)
+        boundary_name = "a" * 124 + ".txt"
+        positive = module.coherent_rebind(
+            artifact_candidate.read_bytes(),
+            interaction_mutate=lambda value: value["operation"]["result"]["artifacts"][0].__setitem__("filename", boundary_name),
+            descriptor_transform=lambda data: data.replace(b'text-report.txt', boundary_name.encode()),
+        )
+        self.assertEqual(boundary_name, module.ORACLE.validate(positive) and boundary_name)
+        validate_bundle_bytes(positive)
+        self.assertEqual(64 * 1024 * 1024, module.ORACLE.MAX_APPLICATION_BYTES)
 
 
 if __name__ == "__main__":

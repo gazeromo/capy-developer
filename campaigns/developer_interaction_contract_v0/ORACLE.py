@@ -22,6 +22,15 @@ DEVKIT_COMMIT = "24b6418c0ee2dada5a08f78ff6752bb43f9d8e16"
 DEVKIT_SOURCE = "1211861edbb512aaefae8c20b207f590fac34c35"
 INTERACTION_SCHEMA = "capy.application-interaction/dev-v0"
 HANDOFF = {"verification":"passed","independent_acceptance":"required","interaction_contract":"included_unaccepted","state_migration":"not_assessed","rollback":"not_assessed","runtime_version_digest":"not_assigned","publication":"not_performed","installation":"not_performed","binding":"not_performed","deployment":"not_performed","publisher_signature":"not_present","secret_scan":"not_performed","runtime_import":"not_performed"}
+MAX_APPLICATION_BYTES = 64 * 1024 * 1024
+MAX_APPLICATION_MEMBERS = 4096
+MAX_APPLICATION_EXPANDED_BYTES = 256 * 1024 * 1024
+MAX_TOOLCHAIN_BYTES = 64 * 1024 * 1024
+MAX_TOOLCHAIN_MEMBERS = 4096
+MAX_TOOLCHAIN_EXPANDED_BYTES = 256 * 1024 * 1024
+MAX_TOOLCHAIN_WHEEL_BYTES = 64 * 1024 * 1024
+MAX_RECEIPT_BYTES = 1024 * 1024
+MAX_BUNDLE_BYTES = 130 * 1024 * 1024
 FACT_KEYS = {
     "toolchain_install":{"timed_out"}, "check":{"timed_out","candidate_unchanged"},
     "interaction_check":{"timed_out","candidate_unchanged"}, "test":{"timed_out","candidate_unchanged"},
@@ -77,15 +86,17 @@ def outer(values: dict[str, bytes]) -> bytes:
     return output.getvalue()
 
 
-def read_application(payload: bytes) -> tuple[dict, bytes, bytes]:
+def read_application(payload: bytes) -> tuple[dict, bytes, bytes, set[str]]:
+    if len(payload) > MAX_APPLICATION_BYTES:
+        raise ValueError("application raw bound")
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         members = infos(archive)
-        if len(members) > 4096 or sum(item.file_size for item in members) > 256 * 1024 * 1024:
+        if len(members) > MAX_APPLICATION_MEMBERS or sum(item.file_size for item in members) > MAX_APPLICATION_EXPANDED_BYTES:
             raise ValueError("application bounds")
         if [item.filename for item in members].count("capability.toml") != 1 or [item.filename for item in members].count("interaction.json") != 1:
             raise ValueError("application roots")
         descriptor_bytes = archive.read("capability.toml"); interaction = archive.read("interaction.json")
-    return tomllib.loads(descriptor_bytes.decode("utf-8")), descriptor_bytes, interaction
+    return tomllib.loads(descriptor_bytes.decode("utf-8")), descriptor_bytes, interaction, {item.filename for item in members}
 
 
 def leaves(schema: dict, prefix: tuple[str, ...] = (), required: bool = True) -> dict[str, tuple[dict, bool]]:
@@ -94,13 +105,15 @@ def leaves(schema: dict, prefix: tuple[str, ...] = (), required: bool = True) ->
             raise ValueError("open input")
         needed = schema.get("required", [])
         properties = schema.get("properties", {})
-        if not isinstance(needed, list) or any(not isinstance(name,str) for name in needed) or len(set(needed)) != len(needed) or not set(needed) <= set(properties): raise ValueError("required")
+        if not isinstance(needed, list) or any(not isinstance(name,str) for name in needed) or not set(needed) <= set(properties): raise ValueError("required")
+        if prefix and not properties: raise ValueError("empty nested input object")
         result = {}
         for name, child in properties.items():
             if re.fullmatch(r"[a-z][a-z0-9_]*", name) is None: raise ValueError("field name")
             result.update(leaves(child, (*prefix, name), required and name in needed))
         return result
     if schema.get("type") not in {"string","integer","number","boolean"} or not prefix: raise ValueError("input leaf")
+    if schema.get("type") == "string" and "enum" in schema and (not isinstance(schema["enum"],list) or not schema["enum"] or any(not isinstance(choice,str) for choice in schema["enum"]) or len(set(schema["enum"])) != len(schema["enum"])): raise ValueError("choice field")
     return {".".join(prefix):(schema, required)}
 
 
@@ -131,7 +144,7 @@ def dotted(value: object) -> bool:
 
 
 def artifact_name(value: object) -> bool:
-    return isinstance(value,str) and 1 <= len(value) <= 120 and value not in {".",".."} and not value.startswith(".") and "/" not in value and "\\" not in value and not any(ch.isspace() or ord(ch)<32 or ord(ch)==127 for ch in value)
+    return isinstance(value,str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}",value) is not None
 
 
 def bounded(value: object, depth: int = 0) -> bool:
@@ -139,6 +152,47 @@ def bounded(value: object, depth: int = 0) -> bool:
     if isinstance(value,dict): return all(bounded(child,depth+1) for child in value.values())
     if isinstance(value,list): return all(bounded(child,depth+1) for child in value)
     return not isinstance(value,float) or math.isfinite(value)
+
+
+def check_schema(schema: object) -> None:
+    keywords = {"type","required","additionalProperties","properties","items","enum","minItems","maxItems","minLength","maxLength","minimum","maximum","pattern"}
+    kinds = {"object","array","string","integer","number","boolean","null"}
+    if not isinstance(schema,dict) or not isinstance(schema.get("type"),str) or set(schema)-keywords or schema["type"] not in kinds: raise ValueError("schema")
+    if "enum" in schema and (not isinstance(schema["enum"],list) or not schema["enum"]): raise ValueError("schema enum")
+    if schema["type"] == "object":
+        properties = schema.get("properties",{}); required = schema.get("required",[])
+        if not isinstance(properties,dict) or not isinstance(required,list) or any(not isinstance(item,str) for item in required) or not set(required) <= set(properties) or not isinstance(schema.get("additionalProperties",True),bool): raise ValueError("object schema")
+        for child in properties.values(): check_schema(child)
+    if schema["type"] == "array" and "items" in schema: check_schema(schema["items"])
+    for key in ("minItems","maxItems","minLength","maxLength"):
+        if key in schema and (type(schema[key]) is not int or schema[key] < 0): raise ValueError("schema bound")
+    for key in ("minimum","maximum"):
+        if key in schema and (not isinstance(schema[key],(int,float)) or isinstance(schema[key],bool)): raise ValueError("schema bound")
+    if "pattern" in schema:
+        try: re.compile(schema["pattern"])
+        except (TypeError,re.error) as exc: raise ValueError("schema pattern") from exc
+
+
+def validate_descriptor(descriptor: object, member_names: set[str]) -> dict:
+    fields = {"schema","id","name","description","entrypoint","side_effect","timeout_seconds","memory_mb","state_required","resources","connections","input_schema","result_schema"}
+    if not isinstance(descriptor,dict) or set(descriptor) != fields: raise ValueError("descriptor shape")
+    if descriptor["schema"] != "capy.script/dev-v0" or not identifier(descriptor["id"]): raise ValueError("descriptor identity")
+    if any(not isinstance(descriptor[key],str) or not descriptor[key].strip() or len(descriptor[key]) > 512 for key in ("name","description")): raise ValueError("descriptor text")
+    entrypoint = descriptor["entrypoint"]
+    if not isinstance(entrypoint,str) or PurePosixPath(entrypoint).name != entrypoint or entrypoint not in member_names: raise ValueError("entrypoint")
+    if descriptor["side_effect"] not in {"read_only","artifact_generation","scope_state_mutation","external_effect"}: raise ValueError("side effect")
+    if type(descriptor["timeout_seconds"]) is not int or not 1 <= descriptor["timeout_seconds"] <= 300 or type(descriptor["memory_mb"]) is not int or not 32 <= descriptor["memory_mb"] <= 2048: raise ValueError("descriptor limits")
+    if type(descriptor["state_required"]) is not bool or (descriptor["state_required"] and descriptor["side_effect"] not in {"scope_state_mutation","external_effect"}): raise ValueError("descriptor state")
+    if not isinstance(descriptor["resources"],list): raise ValueError("resources")
+    names = set()
+    for item in descriptor["resources"]:
+        exact(item,{"name","required","min_items","max_items"},"resource"); name = item["name"]
+        if not isinstance(name,str) or re.fullmatch(r"[a-z][a-z0-9_]*",name) is None or name in names: raise ValueError("resource name")
+        names.add(name)
+        if type(item["required"]) is not bool or type(item["min_items"]) is not int or type(item["max_items"]) is not int or item["min_items"] < 0 or item["max_items"] < item["min_items"] or item["max_items"] > 100 or (item["required"] and item["min_items"] < 1): raise ValueError("resource count")
+    if descriptor["connections"] != []: raise ValueError("connections")
+    check_schema(descriptor["input_schema"]); check_schema(descriptor["result_schema"])
+    return descriptor
 
 
 def result_path(schema: dict, dotted: str) -> dict | None:
@@ -149,12 +203,13 @@ def result_path(schema: dict, dotted: str) -> dict | None:
     return node
 
 
-def validate_interaction(descriptor: dict, source: bytes, projection: bytes) -> dict:
+def validate_interaction(descriptor: dict, source: bytes, projection: bytes, member_names: set[str]) -> dict:
     document = json.loads(source, object_pairs_hook=lambda pairs: exact_pairs(pairs), parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
     if not source or canonical(document) != projection or len(source) > 64 * 1024 or not bounded(document): raise ValueError("interaction canonical")
     exact(document, {"schema","application_id","title","purpose","not_for","operation","boundaries"}, "interaction shape")
     if document["schema"] != INTERACTION_SCHEMA or not identifier(document["application_id"]) or document["application_id"] != descriptor.get("id"): raise ValueError("interaction identity")
-    if descriptor.get("schema") != "capy.script/dev-v0" or descriptor.get("state_required") is not False or descriptor.get("connections") != [] or descriptor.get("side_effect") not in {"read_only","artifact_generation"}: raise ValueError("eligibility")
+    descriptor = validate_descriptor(descriptor, member_names)
+    if descriptor.get("state_required") is not False or descriptor.get("side_effect") not in {"read_only","artifact_generation"}: raise ValueError("eligibility")
     if not text(document["title"],120) or not text(document["purpose"],1000) or not text_list(document["not_for"],32): raise ValueError("interaction text")
     operation = exact(document["operation"], {"operation_id","title","user_outcome","description","request_fields","resource_fields","examples","common_misunderstandings","result"}, "operation")
     if not identifier(operation["operation_id"]) or not text(operation["title"],120) or not text(operation["user_outcome"],500) or not text(operation["description"],1000) or not text_list(operation["examples"],16) or not text_list(operation["common_misunderstandings"],16): raise ValueError("operation fields")
@@ -176,7 +231,7 @@ def validate_interaction(descriptor: dict, source: bytes, projection: bytes) -> 
         exact(field, resource_keys, "resource field"); slot = field["slot"]
         if not isinstance(slot,str) or re.fullmatch(r"[a-z][a-z0-9_]*",slot) is None or slot in observed or slot not in resources or not text(field["label"],120) or not text(field["description"],1000) or not text_list(field["examples"],16) or not text(field["clarification_question"],500): raise ValueError("resource coverage")
         observed.add(slot); rule = resources[slot]
-        if (field["required"],field["minimum_count"],field["maximum_count"],field["input_kind"]) != (rule["required"],rule["min_items"],rule["max_items"],"file"): raise ValueError("resource semantics")
+        if type(field["required"]) is not bool or type(field["minimum_count"]) is not int or type(field["maximum_count"]) is not int or (field["required"],field["minimum_count"],field["maximum_count"],field["input_kind"]) != (rule["required"],rule["min_items"],rule["max_items"],"file"): raise ValueError("resource semantics")
     if observed != set(resources): raise ValueError("missing resource")
     result = exact(operation["result"], {"presentation","facts","artifacts"}, "result")
     if not isinstance(result["facts"],list) or len(result["facts"]) > 64 or not isinstance(result["artifacts"],list) or len(result["artifacts"]) > 32 or (not result["facts"] and not result["artifacts"]): raise ValueError("result lists")
@@ -193,7 +248,7 @@ def validate_interaction(descriptor: dict, source: bytes, projection: bytes) -> 
         filenames.append(filename)
     node = descriptor["result_schema"].get("properties",{}).get("artifact_filenames",{}); expected_files = node.get("items",{}).get("enum") if node.get("type") == "array" else None
     if descriptor["side_effect"] == "read_only" and filenames: raise ValueError("read-only artifacts")
-    if descriptor["side_effect"] == "artifact_generation" and filenames != expected_files: raise ValueError("artifact mismatch")
+    if descriptor["side_effect"] == "artifact_generation" and (not isinstance(expected_files,list) or not expected_files or any(not artifact_name(item) for item in expected_files) or len(set(expected_files)) != len(expected_files) or filenames != expected_files): raise ValueError("artifact mismatch")
     if result["presentation"] != ("artifact_result" if filenames else "facts"): raise ValueError("presentation")
     boundaries = document["boundaries"]
     if not isinstance(boundaries,list) or not 1 <= len(boundaries) <= 32: raise ValueError("boundaries")
@@ -206,16 +261,20 @@ def validate_interaction(descriptor: dict, source: bytes, projection: bytes) -> 
 
 
 def validate(payload: bytes) -> dict:
+    if len(payload) > MAX_BUNDLE_BYTES:
+        raise ValueError("candidate raw bound")
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         outer_infos = infos(archive, MEMBERS)
         if archive.comment or any(item.date_time != (1980,1,1,0,0,0) or item.compress_type != zipfile.ZIP_STORED or item.create_system != 3 or ((item.external_attr >> 16)&0xFFFF) != 0o100644 or item.extra or item.comment for item in outer_infos): raise ValueError("outer metadata")
         values = {name:archive.read(name) for name in MEMBERS}
     if outer(values) != payload: raise ValueError("outer bytes")
+    if len(values[MEMBERS[3]]) > MAX_RECEIPT_BYTES:
+        raise ValueError("receipt raw bound")
     manifest = json.loads(values[MEMBERS[0]]); receipt = json.loads(values[MEMBERS[3]])
     if canonical(manifest) != values[MEMBERS[0]] or canonical(receipt) != values[MEMBERS[3]]: raise ValueError("canonical metadata")
     exact(manifest,{"schema","release_candidate_id","identity_sha256","project","source","application","toolchain","verification","handoff","verified_at"},"manifest")
     exact(receipt,{"schema","pipeline","verification_id","status","classification","session_id","project_id","application_id","source","toolchain","interaction_contract","stages","application_archive","verified_at"},"receipt")
-    if manifest["schema"] != "capy.application-release-candidate/v1" or receipt["schema"] != "capy.development-verification-receipt/v1" or receipt["pipeline"] != "capy.development-verification-pipeline/v1" or manifest["handoff"] != HANDOFF: raise ValueError("schemas/claims")
+    if manifest["schema"] != "capy.application-release-candidate/v1" or receipt["schema"] != "capy.development-verification-receipt/v1" or receipt["pipeline"] != "capy.development-verification-pipeline/v1" or manifest["handoff"] != HANDOFF or not isinstance(manifest["verified_at"],str) or not manifest["verified_at"].endswith("Z"): raise ValueError("schemas/claims")
     project = exact(manifest["project"],{"project_id"},"project")
     source = exact(manifest["source"],{"repository","commit","tree","base_commit"},"source")
     repository = exact(source["repository"],{"kind","public_identity","identity_sha256"},"repository")
@@ -241,14 +300,22 @@ def validate(payload: bytes) -> dict:
     bindings = ((app["archive"],MEMBERS[1]),(interaction,MEMBERS[2]),(manifest["verification"]["receipt"],MEMBERS[3]),(manifest["toolchain"]["authoring_bundle"],MEMBERS[4]))
     for binding,name in bindings:
         if binding.get("member") != name or binding.get("sha256") != digest(values[name]) or binding.get("size_bytes") != len(values[name]): raise ValueError("member binding")
-    descriptor, descriptor_bytes, source_interaction = read_application(values[MEMBERS[1]])
+    descriptor, descriptor_bytes, source_interaction, application_members = read_application(values[MEMBERS[1]])
     if app["descriptor_sha256"] != digest(descriptor_bytes) or app["id"] != descriptor.get("id") or app["contract"] != descriptor.get("schema"): raise ValueError("descriptor binding")
-    checked = validate_interaction(descriptor, source_interaction, values[MEMBERS[2]])
+    checked = validate_interaction(descriptor, source_interaction, values[MEMBERS[2]], application_members)
     if interaction["schema"] != checked["schema"] or interaction["operation_id"] != checked["operation_id"] or interaction["source_member"] != "interaction.json" or interaction["source_sha256"] != digest(source_interaction): raise ValueError("interaction binding")
+    if len(values[MEMBERS[4]]) > MAX_TOOLCHAIN_BYTES:
+        raise ValueError("toolchain raw bound")
     with zipfile.ZipFile(io.BytesIO(values[MEMBERS[4]])) as bundle:
-        infos(bundle); release = json.loads(bundle.read("RELEASE-MANIFEST.json")); wheel = bundle.read("wheel/"+release["wheel_filename"])
+        bundle_infos = infos(bundle)
+        if len(bundle_infos) > MAX_TOOLCHAIN_MEMBERS or sum(item.file_size for item in bundle_infos) > MAX_TOOLCHAIN_EXPANDED_BYTES:
+            raise ValueError("toolchain expanded bound")
+        release = json.loads(bundle.read("RELEASE-MANIFEST.json")); wheel_info = bundle.getinfo("wheel/"+release["wheel_filename"])
+        if wheel_info.file_size > MAX_TOOLCHAIN_WHEEL_BYTES:
+            raise ValueError("toolchain wheel bound")
+        wheel = bundle.read(wheel_info)
     if digest(values[MEMBERS[4]]) != BUNDLE_SHA256 or digest(wheel) != WHEEL_SHA256 or release.get("schema") != "capy.devkit-authoring-bundle/v1" or release.get("source_commit") != DEVKIT_SOURCE or release.get("interaction_contract") != INTERACTION_SCHEMA: raise ValueError("toolchain bytes")
-    if [stage.get("name") for stage in receipt["stages"]] != list(STAGES) or any(stage.get("status") != "PASSED" for stage in receipt["stages"]): raise ValueError("stages")
+    if not isinstance(receipt["stages"],list) or [stage.get("name") for stage in receipt["stages"] if isinstance(stage,dict)] != list(STAGES) or any(not isinstance(stage,dict) or stage.get("status") != "PASSED" for stage in receipt["stages"]): raise ValueError("stages")
     stage_keys = {"name","status","exit_code","stored_stdout_sha256","stored_stdout_bytes","stored_stderr_sha256","stored_stderr_bytes","stdout_truncated_bytes","stderr_truncated_bytes","facts"}
     for stage in receipt["stages"]:
         exact(stage,stage_keys,"stage"); facts = exact(stage["facts"],FACT_KEYS[stage["name"]],"stage facts")

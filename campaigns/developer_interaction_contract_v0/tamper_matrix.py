@@ -41,15 +41,20 @@ def rebuild_inner(payload: bytes, mutate) -> bytes:
     return output.getvalue()
 
 
-def coherent_rebind(payload: bytes, *, interaction_mutate=None, receipt_mutate=None, manifest_mutate=None) -> bytes:
+def coherent_rebind(payload: bytes, *, interaction_mutate=None, descriptor_append: bytes | None = None, descriptor_transform=None, receipt_mutate=None, manifest_mutate=None) -> bytes:
     values = load(payload); manifest = json.loads(values[ORACLE.MEMBERS[0]]); receipt = json.loads(values[ORACLE.MEMBERS[3]])
-    if interaction_mutate is not None:
-        document = json.loads(values[ORACLE.MEMBERS[2]]); interaction_mutate(document); canonical = ORACLE.canonical(document)
-        application = rebuild_inner(values[ORACLE.MEMBERS[1]], lambda name,data: canonical if name == "interaction.json" else data)
+    if interaction_mutate is not None or descriptor_append is not None or descriptor_transform is not None:
+        document = json.loads(values[ORACLE.MEMBERS[2]])
+        if interaction_mutate is not None: interaction_mutate(document)
+        canonical = ORACLE.canonical(document)
+        application = rebuild_inner(values[ORACLE.MEMBERS[1]], lambda name,data: canonical if name == "interaction.json" else (descriptor_transform(data) if name == "capability.toml" and descriptor_transform is not None else (data + descriptor_append if name == "capability.toml" and descriptor_append is not None else data)))
         values[ORACLE.MEMBERS[1]] = application; values[ORACLE.MEMBERS[2]] = canonical
         archive = {"member":ORACLE.MEMBERS[1],"sha256":ORACLE.digest(application),"size_bytes":len(application)}
         binding = manifest["application"]["interaction"]
         binding.update({"source_sha256":ORACLE.digest(canonical),"sha256":ORACLE.digest(canonical),"size_bytes":len(canonical),"operation_id":document["operation"]["operation_id"],"schema":document["schema"]})
+        if descriptor_append is not None or descriptor_transform is not None:
+            with zipfile.ZipFile(io.BytesIO(application)) as archive_zip:
+                manifest["application"]["descriptor_sha256"] = ORACLE.digest(archive_zip.read("capability.toml"))
         manifest["application"]["archive"] = archive
         receipt["application_archive"] = {"sha256":archive["sha256"],"size_bytes":archive["size_bytes"]}
         receipt["interaction_contract"] = {"schema":binding["schema"],"source_member":binding["source_member"],"source_sha256":binding["source_sha256"],"canonical_sha256":binding["sha256"],"canonical_size_bytes":binding["size_bytes"],"operation_id":binding["operation_id"]}
@@ -146,6 +151,36 @@ def cases(payload: bytes) -> dict[str, bytes]:
         "coherent_negative_output_size": coherent_rebind(payload,receipt_mutate=lambda value:value["stages"][0].__setitem__("stored_stdout_bytes",-1)),
         "coherent_manifest_local_path": coherent_rebind(payload,manifest_mutate=lambda value:value["application"]["archive"].__setitem__("local_path","/tmp/secret")),
         "coherent_repository_kind": coherent_rebind(payload,manifest_mutate=lambda value:value["source"]["repository"].__setitem__("kind","bogus")),
+        "coherent_empty_nested_input_object": coherent_rebind(payload,descriptor_append=b'\n[input_schema.properties.options]\ntype = "object"\nadditionalProperties = false\n'),
+        "coherent_nonstring_choice_enum": coherent_rebind(
+            payload,
+            interaction_mutate=lambda value: value["operation"]["request_fields"][0].__setitem__("input_kind", "choice"),
+            descriptor_transform=lambda data: data.replace(
+                b'[input_schema.properties.text]\ntype = "string"\nminLength = 1',
+                b'[input_schema.properties.text]\ntype = "string"\nminLength = 1\nenum = [1]',
+            ),
+        ),
+        "coherent_empty_artifact_enum": coherent_rebind(
+            payload,
+            interaction_mutate=lambda value: (
+                value["operation"]["result"].__setitem__("artifacts", []),
+                value["operation"]["result"].__setitem__("presentation", "facts"),
+            ),
+            descriptor_transform=lambda data: data.replace(b'enum = ["text-report.txt"]', b'enum = []'),
+        ),
+        "coherent_duplicate_descriptor_resource": coherent_rebind(
+            payload,
+            interaction_mutate=lambda value: value["operation"]["resource_fields"].append({
+                "slot":"source", "label":"Source", "description":"Source file.",
+                "required":False, "minimum_count":0, "maximum_count":1,
+                "input_kind":"file", "examples":["source.txt"],
+                "clarification_question":"Which source file?",
+            }),
+            descriptor_transform=lambda data: data.replace(
+                b"resources = []",
+                b'[[resources]]\nname = "source"\nrequired = false\nmin_items = 0\nmax_items = 1\n\n[[resources]]\nname = "source"\nrequired = false\nmin_items = 0\nmax_items = 1',
+            ),
+        ),
     }
     return result
 
