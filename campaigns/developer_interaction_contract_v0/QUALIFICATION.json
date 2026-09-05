@@ -1,14 +1,15 @@
 {
   "schema": "capy.development-interaction-qualification/v1",
   "status": "qualified",
-  "recorded_at": "2026-09-05T06:06:01Z",
+  "recorded_at": "2026-09-05T06:54:54Z",
   "repository": "gazeromo/capy-developer",
   "branch": "codex/developer-interaction-contract-v0",
   "base_commit": "5a950b1a1b73ce6f99018261f0846bda2f3a5fea",
   "base_tree": "efdd8a1239dcf46397a4e0ac6a4c90f7d549991e",
-  "implementation_commit": "7060bc9b96092645cd273364ab9ad5eaebe69753",
-  "implementation_tree": "7d532cd1a40d6d8a65c64090b1c3a43a1fbecb9e",
-  "implementation_remote_head": "7060bc9b96092645cd273364ab9ad5eaebe69753",
+  "implementation_commit": "5b4c40f062f73dcbf1b8d58ae0eb0cdcf63476bc",
+  "implementation_tree": "ed492e239c960b50ca2beb02dafe870071030c26",
+  "test_harness_commit": "13a4594361fac626cdb30fdcba1e7d8b6f4c8171",
+  "implementation_remote_head": "13a4594361fac626cdb30fdcba1e7d8b6f4c8171",
   "sqlite_schema_version": 4,
   "schemas": {
     "toolchain_lock": "capy.toolchain-lock/v1",
@@ -19,12 +20,12 @@
     "release_candidate_result": "capy.development-release-candidate-result/v1",
     "verification_receipt": "capy.development-verification-receipt/v1"
   },
-  "local_tests": {"passed": 109, "failed": 0, "duration_seconds": 236.299},
+  "local_tests": {"passed": 110, "failed": 0, "duration_seconds": 225.540},
   "cross_platform_ci": {
-    "run_id": 33946862213,
-    "attempt": 3,
-    "url": "https://github.com/gazeromo/capy-developer/actions/runs/33946862213",
-    "head_sha": "7060bc9b96092645cd273364ab9ad5eaebe69753",
+    "run_id": 33950502365,
+    "attempt": 1,
+    "url": "https://github.com/gazeromo/capy-developer/actions/runs/33950502365",
+    "head_sha": "13a4594361fac626cdb30fdcba1e7d8b6f4c8171",
     "conclusion": "success",
     "ubuntu": "success",
     "macos": "success",
@@ -38,14 +39,15 @@
   "package": {
     "version": "0.4.0",
     "filename": "capy_developer-0.4.0-py3-none-any.whl",
-    "sha256": "8a6f9c9c51c93e6f7e43403a2078db9f7f2b63ecf3dfa127c43f5cad0ed5094e",
-    "size_bytes": 140378,
+    "sha256": "99264d02561180d44c002dfe3a71d02c54c70c48036b34d1fadbbd0d4df11de2",
+    "size_bytes": 140523,
     "reproducible_builds": 2,
     "offline_install": "passed"
   },
   "reviews": {
     "review_c": "ACCEPT at exact implementation commit; zero P0-P3",
-    "review_d": "ACCEPT at exact implementation commit; zero P0-P3"
+    "review_d": "ACCEPT at exact implementation commit; zero P0-P3",
+    "supplemental_review_c_d": "ACCEPT at exact Windows containment repair commit; zero P0-P3"
   },
   "boundary_zero_counts": {
     "runtime_changes": 0,
@@ -62,5 +64,11 @@
     "codex_specific_core_behavior": 0,
     "mcp_cli_semantic_differences": 0
   },
+  "deviations": [
+    "The owner authorized changing only gazeromo/capy-developer from private to public after a full-history, nested-archive, package, and Actions-log secret scan found zero credentials or private keys. Existing proprietary metadata and history were preserved.",
+    "Initial hosted CI attempts were blocked by private-repository billing state. Public standard runners required no payment method and started normally.",
+    "Evidence-head Windows CI exposed an intermittent extended-path-prefix containment mismatch. Commit 5b4c40f062f73dcbf1b8d58ae0eb0cdcf63476bc repaired the comparison; commit 13a4594361fac626cdb30fdcba1e7d8b6f4c8171 corrected only the regression assertion for Windows case normalization.",
+    "Two preliminary journey invocations reached the default local Developer catalog because isolation environment variables were missing or misspelled. After each, the prior semantic schema-3 database with one project and one session was restored with integrity OK; recoverable backups and quarantined cache/data were preserved. No runtime or production state was involved."
+  ],
   "remaining_blockers": []
 }

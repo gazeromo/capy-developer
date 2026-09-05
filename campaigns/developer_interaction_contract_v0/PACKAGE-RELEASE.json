@@ -1,13 +1,13 @@
 {
   "schema": "capy.development-interaction-package-release/v1",
   "status": "offline-qualified",
-  "source_commit": "7060bc9b96092645cd273364ab9ad5eaebe69753",
-  "source_tree": "7d532cd1a40d6d8a65c64090b1c3a43a1fbecb9e",
+  "source_commit": "5b4c40f062f73dcbf1b8d58ae0eb0cdcf63476bc",
+  "source_tree": "ed492e239c960b50ca2beb02dafe870071030c26",
   "version": "0.4.0",
   "filename": "capy_developer-0.4.0-py3-none-any.whl",
-  "sha256": "8a6f9c9c51c93e6f7e43403a2078db9f7f2b63ecf3dfa127c43f5cad0ed5094e",
-  "size_bytes": 140378,
-  "source_date_epoch": 1788585503,
+  "sha256": "99264d02561180d44c002dfe3a71d02c54c70c48036b34d1fadbbd0d4df11de2",
+  "size_bytes": 140523,
+  "source_date_epoch": 1788589645,
   "clean_snapshot_builds": 2,
   "byte_identical": true,
   "build_tools": {
