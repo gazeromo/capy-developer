@@ -628,9 +628,21 @@ class VerificationService:
             if destination.exists() and destination.read_bytes() != canonical:
                 passed = False
             elif not destination.exists():
-                temporary = destination.with_suffix(".tmp")
-                temporary.write_bytes(canonical)
-                temporary.replace(destination)
+                descriptor, temporary_name = tempfile.mkstemp(
+                    prefix="interaction-", suffix=".tmp", dir=destination.parent
+                )
+                temporary = Path(temporary_name)
+                try:
+                    with os.fdopen(descriptor, "wb") as stream:
+                        stream.write(canonical)
+                    try:
+                        os.link(temporary, destination)
+                    except FileExistsError:
+                        pass
+                finally:
+                    temporary.unlink(missing_ok=True)
+                if destination.read_bytes() != canonical:
+                    passed = False
         self._record_process(
             verification_id, "interaction_preserve", result, passed,
             facts={

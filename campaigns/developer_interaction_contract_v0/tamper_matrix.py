@@ -33,6 +33,17 @@ def inner_change(payload: bytes, member: str, mutate) -> bytes:
     values[member] = output.getvalue(); return ORACLE.outer(values)
 
 
+def weaken_required_field(payload: bytes, interaction: str) -> bytes:
+    values = load(payload)
+    document = json.loads(values[interaction])
+    required = [field for field in document["operation"]["request_fields"] if field["required"]]
+    if not required:
+        raise ValueError("required-field tamper needs a control with a required request field")
+    required[0]["required"] = False
+    values[interaction] = ORACLE.canonical(document)
+    return ORACLE.outer(values)
+
+
 def custom_outer(payload: bytes, names: list[str], *, comment: bytes = b"", tweak=None) -> bytes:
     values = load(payload); output = io.BytesIO()
     with warnings.catch_warnings(), zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
@@ -78,7 +89,7 @@ def cases(payload: bytes) -> dict[str, bytes]:
         "interaction_application_id_changed": ORACLE.outer({**values,interaction:ORACLE.canonical({**json.loads(values[interaction]),"application_id":"demo.changed"})}),
         "operation_id_changed": ORACLE.outer({**values,interaction:ORACLE.canonical({**json.loads(values[interaction]),"operation":{**json.loads(values[interaction])["operation"],"operation_id":"changed.run"}})}),
         "unknown_request_field_inserted": ORACLE.outer({**values,interaction:ORACLE.canonical((lambda doc:(doc["operation"]["request_fields"].append({"field_id":"unknown","label":"Unknown","description":"x","required":False,"input_kind":"text","safe_default":None,"examples":["x"],"clarification_question":"x"}),doc)[1])(json.loads(values[interaction])))}),
-        "required_field_weakened": change_manifest("",lambda value:value["application"]["interaction"].__setitem__("operation_id","changed.run")),
+        "required_field_weakened": weaken_required_field(payload, interaction),
         "resource_count_changed": ORACLE.outer({**values,interaction:ORACLE.canonical((lambda doc:(doc["operation"]["resource_fields"].append({"slot":"unknown","label":"Unknown","description":"x","required":False,"minimum_count":0,"maximum_count":1,"input_kind":"file","examples":["x"],"clarification_question":"x"}),doc)[1])(json.loads(values[interaction])))}),
         "unknown_result_fact_inserted": ORACLE.outer({**values,interaction:ORACLE.canonical((lambda doc:(doc["operation"]["result"]["facts"].append({"path":"unknown","label":"Unknown"}),doc)[1])(json.loads(values[interaction])))}),
         "artifact_list_changed": ORACLE.outer({**values,interaction:ORACLE.canonical((lambda doc:(doc["operation"]["result"]["artifacts"].append({"filename":"changed.txt","label":"Changed"}),doc)[1])(json.loads(values[interaction])))}),
