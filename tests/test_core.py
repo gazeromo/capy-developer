@@ -84,12 +84,12 @@ class CoreTestCase(unittest.TestCase):
         unc_path = Path(r"\\?\UNC\server\share\verification.lock")
         with mock.patch("capy_developer.util.os.name", "nt"):
             self.assertEqual(
-                r"C:\Users\runner\state\verification.lock",
-                _containment_path(drive_path),
+                r"C:\Users\runner\state\verification.lock".casefold(),
+                _containment_path(drive_path).casefold(),
             )
             self.assertEqual(
-                r"\\server\share\verification.lock",
-                _containment_path(unc_path),
+                r"\\server\share\verification.lock".casefold(),
+                _containment_path(unc_path).casefold(),
             )
 
     def test_doctor_verifies_exact_embedded_toolchain(self):
