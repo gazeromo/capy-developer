@@ -267,7 +267,7 @@ class InteractionV1Tests(unittest.TestCase):
         matrix = subprocess.run([sys.executable, str(campaign / "tamper_matrix.py"), str(artifact_candidate)], cwd=self.root, text=True, capture_output=True)
         self.assertEqual(0, matrix.returncode, matrix.stdout + matrix.stderr)
         facts = json.loads(matrix.stdout)
-        self.assertEqual((53, 53, []), (facts["cases"], facts["rejected"], facts["unexpected_accepts"]))
+        self.assertEqual((57, 57, []), (facts["cases"], facts["rejected"], facts["unexpected_accepts"]))
         sys.path.insert(0, str(campaign))
         try:
             spec = importlib.util.spec_from_file_location("capy_v1_tamper_matrix", campaign / "tamper_matrix.py")

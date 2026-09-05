@@ -876,6 +876,8 @@ def _validate_v1_bundle_bytes(payload: bytes) -> dict:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "release candidate is not a valid ZIP") from exc
     if _zip_bytes(members, MEMBERS_V1) != payload:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "release candidate outer bytes are not canonical")
+    if len(members[MEMBERS_V1[3]]) > MAX_RECEIPT_BYTES:
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate verification receipt exceeds the byte limit")
     try:
         manifest = json.loads(members[MEMBERS_V1[0]])
         receipt = json.loads(members[MEMBERS_V1[3]])
@@ -922,15 +924,16 @@ def _validate_v1_bundle_bytes(payload: bytes) -> dict:
         )
     ):
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "candidate V1 repository identity is invalid")
+    matches = lambda pattern, value: isinstance(value, str) and pattern.fullmatch(value) is not None
     if (
-        PROJECT_ID.fullmatch(str(manifest["project"]["project_id"])) is None
-        or APPLICATION_ID.fullmatch(str(app["id"])) is None
-        or VERIFICATION_ID.fullmatch(str(manifest["verification"]["verification_id"])) is None
-        or SESSION_ID.fullmatch(str(receipt["session_id"])) is None
-        or any(HEX40.fullmatch(str(manifest["source"][key])) is None for key in ("commit", "tree", "base_commit"))
-        or any(HEX40.fullmatch(str(manifest["toolchain"][key])) is None for key in ("release_binding_commit", "implementation_commit"))
+        not matches(PROJECT_ID, manifest["project"]["project_id"])
+        or not matches(APPLICATION_ID, app["id"])
+        or not matches(VERIFICATION_ID, manifest["verification"]["verification_id"])
+        or not matches(SESSION_ID, receipt["session_id"])
+        or any(not matches(HEX40, manifest["source"][key]) for key in ("commit", "tree", "base_commit"))
+        or any(not matches(HEX40, manifest["toolchain"][key]) for key in ("release_binding_commit", "implementation_commit"))
         or any(
-            HEX64.fullmatch(str(value)) is None
+            not matches(HEX64, value)
             for value in (
                 app["descriptor_sha256"], app["archive"]["sha256"], interaction_binding["source_sha256"],
                 interaction_binding["sha256"], manifest["toolchain"]["authoring_bundle"]["sha256"],

@@ -149,6 +149,25 @@ def cases(payload: bytes) -> dict[str, bytes]:
         "coherent_failed_receipt": coherent_rebind(payload,receipt_mutate=lambda value:value.__setitem__("status","FAILED")),
         "coherent_malformed_output_digest": coherent_rebind(payload,receipt_mutate=lambda value:value["stages"][0].__setitem__("stored_stdout_sha256","not-a-sha256")),
         "coherent_negative_output_size": coherent_rebind(payload,receipt_mutate=lambda value:value["stages"][0].__setitem__("stored_stdout_bytes",-1)),
+        "coherent_oversized_receipt": coherent_rebind(
+            payload,
+            receipt_mutate=lambda value:value.__setitem__("verified_at", "x" * ORACLE.MAX_RECEIPT_BYTES + "Z"),
+            manifest_mutate=lambda value:value.__setitem__("verified_at", "x" * ORACLE.MAX_RECEIPT_BYTES + "Z"),
+        ),
+        "coherent_integer_source_commit": coherent_rebind(
+            payload,
+            receipt_mutate=lambda value:value["source"].__setitem__("commit", int("1" * 40)),
+            manifest_mutate=lambda value:value["source"].__setitem__("commit", int("1" * 40)),
+        ),
+        "coherent_integer_lock_digest": coherent_rebind(
+            payload,
+            receipt_mutate=lambda value:value["toolchain"].__setitem__("lock_digest", int("1" * 64)),
+        ),
+        "coherent_manifest_wheel_filename": coherent_rebind(
+            payload,
+            receipt_mutate=lambda value:value["toolchain"].__setitem__("wheel_filename", "bogus.whl"),
+            manifest_mutate=lambda value:value["toolchain"].__setitem__("wheel_filename", "bogus.whl"),
+        ),
         "coherent_manifest_local_path": coherent_rebind(payload,manifest_mutate=lambda value:value["application"]["archive"].__setitem__("local_path","/tmp/secret")),
         "coherent_repository_kind": coherent_rebind(payload,manifest_mutate=lambda value:value["source"]["repository"].__setitem__("kind","bogus")),
         "coherent_empty_nested_input_object": coherent_rebind(payload,descriptor_append=b'\n[input_schema.properties.options]\ntype = "object"\nadditionalProperties = false\n'),
