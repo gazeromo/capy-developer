@@ -76,15 +76,17 @@ def validate(value):
     require(type(value['prerequisites']['uv']) is dict, 'invalid prerequisite matrix')
     for platform, uv in value['prerequisites']['uv'].items():
         require(platform in value['platforms'], 'prerequisite platform not supported')
-        closed(uv, 'version artifact')
+        closed(uv, 'version artifact python_artifact downloads python_key')
         token(uv['version'], r'[0-9]+\.[0-9]+\.[0-9]+')
-        artifact(uv['artifact'])
+        artifact(uv['artifact']); artifact(uv['python_artifact']); artifact(uv['downloads'])
+        token(uv['python_key'], r'cpython-3\.(?:11|12|13|14)\.[0-9]+-(?:darwin|linux|windows)-(?:aarch64|x86_64)-(?:none|gnu|msvc)')
+        require(uv['python_key'].startswith('cpython-'+value['prerequisites']['python_exact']+'-'), 'Python prerequisite version mismatch')
     names = [x['filename'] for x in artifacts(value)]
     require(len(names) == len(set(names)), 'duplicate artifact names')
     return value
 
 def artifacts(value):
-    return [value['developer']['artifact'], value['installer'], *[v['artifact'] for v in value['prerequisites']['uv'].values()]]
+    return [value['developer']['artifact'], value['installer'], *[v[k] for v in value['prerequisites']['uv'].values() for k in ('artifact','python_artifact','downloads')]]
 
 def decode(raw, expected_sha256=None):
     require(type(raw) is bytes and len(raw) <= MAX_MANIFEST, 'manifest exceeds bound')
