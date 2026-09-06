@@ -9,6 +9,19 @@ from .errors import DeveloperError
 
 
 TOOLS = [
+    {"name": "capy_client_status", "description": "Inspect the approved computer and truthful historical client checks.",
+     "inputSchema": {"type": "object", "required": ["client_id"], "additionalProperties": False,
+                     "properties": {"client_id": {"type": "string", "pattern": "^cli_[0-9a-f]{32}$"}}}},
+    {"name": "capy_client_check", "description": "Perform the configured client's fresh MCP tool challenge through its approved computer connection.",
+     "inputSchema": {"type": "object", "required": ["client_id"], "additionalProperties": False,
+                     "properties": {"client_id": {"type": "string", "pattern": "^cli_[0-9a-f]{32}$"}}}},
+    {"name": "capy_work_begin", "description": "Prepare website-linked work before editing. Explicit new application or exact completed handoff continuation; returns the managed workspace and review URL without launching another client.",
+     "inputSchema": {"type": "object", "required": ["client_id", "intent_id", "request"], "additionalProperties": False,
+       "properties": {"client_id": {"type": "string"}, "intent_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+           "request": {"type": "string"}, "parent_handoff_id": {"type": "string"},
+           "new": {"type": "object", "required": ["name", "application_id"], "additionalProperties": False,
+                   "properties": {"name": {"type": "string"}, "application_id": {"type": "string"}}}},
+       "oneOf": [{"required": ["new"]}, {"required": ["parent_handoff_id"]}]}},
     {"name": "capy_development_attach", "description": "Attach to the exact locally prepared handoff; does not create another project.",
      "inputSchema": {"type": "object", "required": ["handoff_id"], "additionalProperties": False,
                      "properties": {"handoff_id": {"type": "string", "pattern": "^hof_[0-9a-f]{32}$"}}}},
@@ -109,6 +122,17 @@ TOOLS = [
 
 
 def _call(core: DeveloperCore, name: str, arguments: dict) -> dict:
+    if name in {"capy_client_status", "capy_client_check", "capy_work_begin"}:
+        from .harness_client import HarnessClient
+        harness = HarnessClient(core)
+        if name == "capy_work_begin":
+            result = harness.begin(arguments)
+            from .desktop_cli import start_sync
+            start_sync(core.config)
+            return result
+        if set(arguments) != {"client_id"}:
+            raise DeveloperError("CLIENT_INPUT_INVALID", "provide only client_id")
+        return harness.check(arguments["client_id"], channel="MCP_STDIO") if name == "capy_client_check" else harness.status(arguments["client_id"])
     if name == "capy_development_attach":
         if set(arguments) != {"handoff_id"}:
             raise DeveloperError("ATTACH_INPUT_INVALID", "attach requires only handoff_id")

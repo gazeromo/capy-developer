@@ -38,6 +38,19 @@ def parser() -> argparse.ArgumentParser:
     root = JsonArgumentParser(prog="capy-dev")
     commands = root.add_subparsers(dest="command", required=True)
     commands.add_parser("doctor")
+    commands.add_parser("installation").add_subparsers(dest="installation_command", required=True).add_parser("inspect")
+    connect = commands.add_parser("connect")
+    connect.add_argument("--site", required=True)
+    connect.add_argument("--client", choices=["muse", "codex"], required=True)
+    client = commands.add_parser("client").add_subparsers(dest="client_command", required=True)
+    client.add_parser("list")
+    for name in ("inspect", "check"):
+        client.add_parser(name).add_argument("--client-id", required=True)
+    work = commands.add_parser("work").add_subparsers(dest="work_command", required=True)
+    work.add_parser("list")
+    begin = work.add_parser("begin")
+    begin.add_argument("--input")
+    begin.add_argument("--input-json")
 
     projects = commands.add_parser("projects").add_subparsers(dest="projects_command", required=True)
     project_import = projects.add_parser("import")
@@ -83,6 +96,63 @@ def run(arguments: list[str] | None = None) -> dict | None:
     if args.command == "mcp":
         serve()
         return None
+    if args.command == "installation":
+        import os
+        from .config import Config
+        from .installation import discover, locator_path, roots, ROOT_KEYS
+        current = Config.from_environment()
+        result = discover(default=current, explicit=current if all(k in os.environ for k in ROOT_KEYS) else None,
+                          config_path=Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml",
+                          locator=locator_path())
+        return {"schema": "capy.installation-inspection/v0", "ok": True,
+                "status": result["status"], "source": result["source"],
+                "technical_details": {"roots": roots(result["config"])},
+                "mutated": False, "ready": False}
+    if args.command in {"connect", "client", "work"}:
+        import os
+        import shutil
+        import subprocess
+        import re
+        from .config import Config
+        from .harness_client import HarnessClient, connection_info
+        from .installation import discover, locator_path, ROOT_KEYS
+        current = Config.from_environment()
+        found = discover(default=current, explicit=current if all(k in os.environ for k in ROOT_KEYS) else None,
+                         config_path=Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml",
+                         locator=locator_path())
+        if args.command != "connect" and found["status"] != "EXISTING":
+            raise DeveloperError("INSTALLATION_NOT_FOUND", "connect this coding client before starting linked work")
+        if args.command == "connect":
+            from .desktop.transport import Transport
+            connection_info(Transport(), args.site)
+            executable = shutil.which(args.client)
+            if executable is None:
+                raise DeveloperError("CLIENT_NOT_INSTALLED", "install and sign in to the coding client first")
+            try:
+                probe = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=15, check=True)
+            except (OSError, subprocess.SubprocessError):
+                raise DeveloperError("CLIENT_PROBE_FAILED", "the installed client version could not be inspected") from None
+            version = probe.stdout.strip()
+            if not re.fullmatch(r'[A-Za-z0-9 ._()+-]{1,80}', version):
+                raise DeveloperError("CLIENT_VERSION_INVALID", "invalid observed coding client version")
+        core = DeveloperCore(found["config"])
+        harness = HarnessClient(core)
+        if args.command == "connect":
+            from .client_setup import ClientSetup
+            setup = ClientSetup(core, skills=Path.home() / ".agents/skills", locator=locator_path(),
+                                codex_config=Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml")
+            configuration = setup.install(args.client)
+            return {**harness.connect(args.site, args.client, version, configuration["transport"]), 'configuration':configuration}
+        if args.command == "client":
+            if args.client_command == "list":
+                return harness.clients()
+            return harness.check(args.client_id, channel="JSON_CLI") if args.client_command == "check" else harness.status(args.client_id)
+        if args.work_command == "list":
+            return harness.work()
+        result = harness.begin(_read_input(args.input, args.input_json))
+        from .desktop_cli import start_sync
+        start_sync(core.config)
+        return result
     core = DeveloperCore()
     if args.command == "doctor":
         return core.doctor()

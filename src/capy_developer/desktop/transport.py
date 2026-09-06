@@ -18,6 +18,20 @@ class Transport:
         self.timeout = timeout
         self.opener = urllib.request.build_opener(NoRedirect())
 
+    def connection_info(self, site_origin: str) -> dict:
+        origin(site_origin)
+        url = site_origin + '/developer/connection-info.json'
+        try:
+            with self.opener.open(urllib.request.Request(url, headers={'Accept': 'application/json'}), timeout=self.timeout) as response:
+                if response.geturl() != url:
+                    raise DeveloperError('LINK_REDIRECT_REFUSED', 'connection-info redirects are refused')
+                result = decode_json(response.read(4097), max_bytes=4096)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise DeveloperError('LINK_CAPABILITY_UNAVAILABLE', 'the site connection guide is unavailable; check its supported version') from None
+        if not isinstance(result, dict):
+            raise DeveloperError('LINK_RESPONSE_INVALID', 'invalid site connection information')
+        return result
+
     def post(self, site_origin: str, path: str, body: dict, secret: str | None = None) -> dict:
         origin(site_origin)
         if not path.startswith('/api/developer-link/') or '?' in path or '#' in path:

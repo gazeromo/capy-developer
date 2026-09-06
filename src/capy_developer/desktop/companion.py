@@ -139,7 +139,11 @@ class Companion:
                     pass
             raise
 
-    def _open_uri(self, uri: str) -> dict:
+    def prepare_uri(self, uri: str, *, local_request: dict | None = None) -> dict:
+        """Claim and prepare linked work without dispatching a desktop launcher."""
+        return self._open_uri(uri, launch=False, local_request=local_request)
+
+    def _open_uri(self, uri: str, *, launch: bool = True, local_request: dict | None = None) -> dict:
         parsed = parse_uri(uri)
         with self._lock():
             pair = self._approved(parsed['site_id'])
@@ -164,7 +168,11 @@ class Companion:
             handoff = self.state.handoff(request['handoff_id'])
             self._pair_for_handoff(handoff)
             if handoff['session_id'] is None:
-                prepared = self._prepare(request)
+                if local_request is not None and request['intent'] == 'NEW':
+                    prepared = self.core.start_development({**local_request,
+                        'idempotency_key': 'handoff:' + request['site_id'] + ':' + request['handoff_id']})
+                else:
+                    prepared = self._prepare(request, brief=local_request['request'] if local_request else None)
                 self._usable(prepared)
                 with self.state.connect() as db:
                     db.execute('UPDATE handoffs SET session_id=?,project_id=? WHERE handoff_id=?',
@@ -174,7 +182,11 @@ class Companion:
             self._usable(result)
             self._marker(handoff, result, write=True)
             self.prepared_for_launch = True
-            if parsed['launch_generation'] > handoff['generation']:
+            if not launch:
+                with self.state.connect() as db:
+                    db.execute("UPDATE handoffs SET generation=?,launch_state='WAITING_FOR_HARNESS' WHERE handoff_id=?",
+                               (parsed['launch_generation'], request['handoff_id']))
+            elif parsed['launch_generation'] > handoff['generation']:
                 # Intent commits before the nontransactional OS side effect. Crash means unknown.
                 with self.state.connect() as db:
                     db.execute("UPDATE handoffs SET generation=?,launch_state='LAUNCH_OUTCOME_UNKNOWN' WHERE handoff_id=?", (parsed['launch_generation'], request['handoff_id']))
@@ -186,9 +198,9 @@ class Companion:
         self.sync_once(request['handoff_id'])
         return self.inspect(request['handoff_id'])
 
-    def _prepare(self, request: dict) -> dict:
+    def _prepare(self, request: dict, *, brief: str | None = None) -> dict:
         key = 'handoff:' + request['site_id'] + ':' + request['handoff_id']
-        brief = 'Owner-opened app development. The owner will provide requirements in the interactive coding harness.'
+        brief = brief or 'Owner-opened app development. The owner will provide requirements in the interactive coding harness.'
         if request['intent'] == 'NEW':
             return self.core.start_development({'new': {'name': 'New app ' + request['handoff_id'][4:12], 'application_id': 'apps.a' + request['handoff_id'][4:]}, 'request': brief, 'idempotency_key': key})
         parent = self.state.handoff(request['parent_handoff_id'])

@@ -50,11 +50,15 @@ def parser():
     return root
 
 
-def start_sync() -> None:
+def start_sync(config=None) -> None:
     # No credential, model option or remote command enters child argv/environment.
+    environment = os.environ.copy()
+    if config is not None:
+        from .installation import roots
+        environment.update(roots(config))
     subprocess.Popen([sys.executable, '-m', 'capy_developer', 'handoff', 'sync'],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True, close_fds=True, env=os.environ.copy())
+                     start_new_session=True, close_fds=True, env=environment)
 
 
 def synchronize(companion: Companion, handoff_id=None) -> dict:

@@ -14,7 +14,7 @@ dependencies = []
 capy-dev = "capy_developer.cli:main"
 
 [tool.setuptools.package-data]
-capy_developer = ["data/*.zip"]
+capy_developer = ["data/*.zip", "data/*.md"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
