@@ -187,6 +187,37 @@ class HarnessClient:
         row = self._client(client_id)
         return self._post(row['site'], 'status', {})
 
+    def reopen(self, value):
+        require(isinstance(value, dict) and set(value) == {'client_id','handoff_id','previous_editor_stopped'},
+                'WORK_INPUT_INVALID', 'provide the exact linked work and explicit previous-editor confirmation')
+        require(value['previous_editor_stopped'] is True, 'ACTIVE_WRITER_HANDOVER_REQUIRED',
+                'confirm the previous editor has stopped before reopening this worktree')
+        handoff_id = value['handoff_id']
+        require(isinstance(handoff_id,str) and bool(re.fullmatch(r'hof_[0-9a-f]{32}',handoff_id)),
+                'WORK_INPUT_INVALID', 'invalid linked handoff')
+        row = self._client(value['client_id'])
+        with self.companion.state.connect() as db:
+            associations = db.execute('SELECT request FROM harness_work WHERE site=? AND client=? AND installation=? AND request IS NOT NULL',
+                (row['site'],row['client'],row['installation'])).fetchall()
+        require(any(json.loads(r['request'])['handoff_id'] == handoff_id for r in associations),
+                'WORK_CLIENT_ASSOCIATION_MISMATCH', 'reopen through the original coding client; never take over another client worktree')
+        handoff = self.companion.state.handoff(handoff_id)
+        development = self.core.inspect_development(handoff['session_id'])
+        require(development['status'] == 'READY', 'WORK_SESSION_TERMINAL', 'this session is not active; continue its exact completed candidate')
+        request = validate_request(self._post(row['site'],'reopen',value))
+        pair = self.companion._approved(row['site'])
+        saved = json.loads(handoff['request'])
+        require(request['handoff_id'] == handoff_id and request['site_id'] == row['site']
+                and request['device_id'] == pair['device_id'] and request['principal_id'] == pair['principal_id']
+                and request['request_digest'] == saved['request_digest'],
+                'WORK_AUTHORITY_MISMATCH', 'reopen returned another work association')
+        progress = self.companion.prepare_uri(make_uri(row['site'],handoff_id,request['launch_generation']))
+        from .workspace_resume import prepare
+        return {'ok':True,'handoff_id':handoff_id,'development':self.core.inspect_development(handoff['session_id']),
+                'progress':progress,'workspace_adoption':'REQUIRED',
+                'continuation':prepare(self.core.config,handoff_id,row['adapter'].split(':',1)[0]),
+                'review_url':pair['origin']+'/developer/requests/'+handoff_id}
+
     def begin(self, value):
         require(isinstance(value, dict) and set(value) in (
             {'client_id','intent_id','request','new'}, {'client_id','intent_id','request','parent_handoff_id'}),

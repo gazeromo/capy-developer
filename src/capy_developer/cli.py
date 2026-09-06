@@ -58,6 +58,9 @@ def parser() -> argparse.ArgumentParser:
     begin = work.add_parser("begin")
     begin.add_argument("--input")
     begin.add_argument("--input-json")
+    reopen = work.add_parser("reopen")
+    reopen.add_argument("--input")
+    reopen.add_argument("--input-json")
 
     projects = commands.add_parser("projects").add_subparsers(dest="projects_command", required=True)
     project_import = projects.add_parser("import")
@@ -182,7 +185,8 @@ def run(arguments: list[str] | None = None) -> dict | None:
             return harness.pending(args.handoff_id)
         if args.work_command == "send":
             return harness.send(args.handoff_id, args.submission_id)
-        result = harness.begin(_read_input(args.input, args.input_json))
+        value = _read_input(args.input, args.input_json)
+        result = harness.reopen(value) if args.work_command == "reopen" else harness.begin(value)
         from .desktop_cli import start_sync
         start_sync(core.config)
         return result

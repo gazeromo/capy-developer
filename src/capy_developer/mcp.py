@@ -9,6 +9,9 @@ from .errors import DeveloperError
 
 
 TOOLS = [
+    {"name":"capy_work_reopen", "description":"Reopen exact active linked work through its original client without creating or launching a session. Set previous_editor_stopped only after the user explicitly confirms the earlier editor has stopped; never infer it from stale presence.",
+     "inputSchema":{"type":"object","required":["client_id","handoff_id","previous_editor_stopped"],"additionalProperties":False,
+       "properties":{"client_id":{"type":"string","pattern":"^cli_[0-9a-f]{32}$"},"handoff_id":{"type":"string","pattern":"^hof_[0-9a-f]{32}$"},"previous_editor_stopped":{"type":"boolean","const":True}}}},
     {"name": "capy_candidate_pending", "description": "List current website-approved source-send intents for one exact linked handoff. Does not create consent or send source.",
      "inputSchema": {"type": "object", "required": ["handoff_id"], "additionalProperties": False,
                      "properties": {"handoff_id": {"type": "string", "pattern": "^hof_[0-9a-f]{32}$"}}}},
@@ -145,11 +148,11 @@ def _call(core: DeveloperCore, name: str, arguments: dict) -> dict:
             raise DeveloperError("WORK_INPUT_INVALID", "provide only handoff_id")
         from .harness_client import HarnessClient
         return HarnessClient(core).sync(arguments["handoff_id"])
-    if name in {"capy_client_status", "capy_client_check", "capy_work_begin"}:
+    if name in {"capy_client_status", "capy_client_check", "capy_work_begin", "capy_work_reopen"}:
         from .harness_client import HarnessClient
         harness = HarnessClient(core)
-        if name == "capy_work_begin":
-            result = harness.begin(arguments)
+        if name in {"capy_work_begin", "capy_work_reopen"}:
+            result = harness.begin(arguments) if name == "capy_work_begin" else harness.reopen(arguments)
             from .desktop_cli import start_sync
             start_sync(core.config)
             return result
