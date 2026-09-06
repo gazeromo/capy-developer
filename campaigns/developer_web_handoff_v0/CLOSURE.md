@@ -37,9 +37,11 @@ Deviations: owner-operated native interactions because automation was blocked;
 isolated owner-authorized trusted loopback HTTPS because no staging origin existed;
 fixture/environment repairs and reporter repair retained with original failures;
 installed restart adaptation and package-delta scope explicitly recorded.
-Remaining blocker: none to reviewed capability; checked merges/post-merge checks follow.
+Remaining blocker: none. Checked strict-fast-forward merge and post-merge tests pass.
 Proposed next task: none started; any production rollout is a separate owner decision.
 
 Exact remote preconditions, strict-fast-forward results and post-merge checks are
 recorded in POST-MERGE.json after execution. Evidence-only final commits preserve
 these implementation/package/test identities; there is no implied deployment.
+
+Post-merge qualification: 40 tests pass at `a3d0ad853dd5b2ed04394dd9af3b8b019ffba6ad`; exact details and retained command/preflight repairs in POST-MERGE.json. Final evidence-only closure retains src/tests/package identity.

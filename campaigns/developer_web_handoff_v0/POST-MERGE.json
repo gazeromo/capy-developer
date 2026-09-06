@@ -1,0 +1,34 @@
+{
+  "repository": "capy-developer",
+  "base": "9f0d0334e1eedc230f109d13bc9893aac0d56750",
+  "candidate_head": "a3d0ad853dd5b2ed04394dd9af3b8b019ffba6ad",
+  "reviewed_source_commit": "04317381031d294623abca98093345397179eb3e",
+  "src_tree": "e13dc306a38e863633e9be57409f9dcaa6f78084",
+  "tests_tree": "61d9b802b94e1729ceaebd4c3d18315c81b42861",
+  "preconditions": "PASS",
+  "merge_method": "strict fast-forward",
+  "merged_main_head": "a3d0ad853dd5b2ed04394dd9af3b8b019ffba6ad",
+  "remote_visible_main": "a3d0ad853dd5b2ed04394dd9af3b8b019ffba6ad",
+  "remote_branch": "astra/developer-web-handoff-v0",
+  "deployment": "UNCHANGED",
+  "post_merge_tests": {
+    "head": "a3d0ad853dd5b2ed04394dd9af3b8b019ffba6ad",
+    "passed": 40,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 29.39,
+    "junit_sha256": "6be776fc72d721b7a6b3a27b258e7b7f8075653f93696abe579f2126f4657fd3",
+    "scope": "desktop, continuation, link protocol",
+    "python": "3.14.0",
+    "platform": "macOS26.5.2"
+  },
+  "preflight_repair": {
+    "original_preflight": "STOPPED before any task push/main merge",
+    "stale_local_developer_main": "e684fd601fabe8b072d7a309be44b71abe8b5d53",
+    "remote_accepted_base": "9f0d0334e1eedc230f109d13bc9893aac0d56750",
+    "ancestor_verified": true,
+    "repair": "strict fast-forward local main to already accepted remote base; no remote change",
+    "source_changed": false
+  },
+  "final_evidence_delta": "This final evidence-only commit retains identical reviewed src/tests and package payloads. Final clean refs and payload/test parity recorded in control handoff."
+}
