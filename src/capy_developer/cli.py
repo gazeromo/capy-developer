@@ -135,6 +135,11 @@ def run(arguments: list[str] | None = None) -> dict | None:
             version = probe.stdout.strip()
             if not re.fullmatch(r'[A-Za-z0-9 ._()+-]{1,80}', version):
                 raise DeveloperError("CLIENT_VERSION_INVALID", "invalid observed coding client version")
+        if args.command == "client":
+            harness = HarnessClient.diagnostics(found["config"])
+            if args.client_command == "list":
+                return harness.clients()
+            return harness.check(args.client_id, channel="JSON_CLI") if args.client_command == "check" else harness.status(args.client_id)
         core = DeveloperCore(found["config"])
         harness = HarnessClient(core)
         if args.command == "connect":
@@ -143,10 +148,6 @@ def run(arguments: list[str] | None = None) -> dict | None:
                                 codex_config=Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml")
             configuration = setup.install(args.client)
             return {**harness.connect(args.site, args.client, version, configuration["transport"]), 'configuration':configuration}
-        if args.command == "client":
-            if args.client_command == "list":
-                return harness.clients()
-            return harness.check(args.client_id, channel="JSON_CLI") if args.client_command == "check" else harness.status(args.client_id)
         if args.work_command == "list":
             return harness.work()
         result = harness.begin(_read_input(args.input, args.input_json))
@@ -185,6 +186,7 @@ def run(arguments: list[str] | None = None) -> dict | None:
 
 
 def main(arguments: list[str] | None = None) -> int:
+    import sqlite3
     raw = list(sys.argv[1:] if arguments is None else arguments)
     if raw and raw[0] in {"setup", "handoff"}:
         from .desktop_cli import run as desktop_run
@@ -201,6 +203,14 @@ def main(arguments: list[str] | None = None) -> int:
     except DeveloperError as exc:
         print(json.dumps(exc.result(), sort_keys=True))
         print(json.dumps({"code": exc.code, "detail": exc.detail}, sort_keys=True), file=sys.stderr)
+        return 2
+    except sqlite3.OperationalError as exc:
+        if (getattr(exc, 'sqlite_errorcode', 0) & 0xff) != sqlite3.SQLITE_READONLY:
+            raise
+        failure = DeveloperError('INSTALLATION_WRITE_ACCESS_REQUIRED',
+            'this operation requires write access to the existing Capy installation; use a supported client workspace or scoped write permission, then retry the same operation')
+        print(json.dumps(failure.result(), sort_keys=True))
+        print(json.dumps({'code':failure.code, 'detail':failure.detail}, sort_keys=True), file=sys.stderr)
         return 2
 
 

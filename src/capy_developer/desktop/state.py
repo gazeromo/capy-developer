@@ -45,9 +45,23 @@ def private_directory(path: Path) -> None:
 
 
 class State:
-    def __init__(self, root: Path, *, credential_store=None):
+    def __init__(self, root: Path, *, credential_store=None, read_only=False):
         self.root = root
+        self.read_only = read_only
         self.credentials = credential_store if credential_store is not None else default_credentials()
+        if read_only:
+            self.path = root / 'links.sqlite3'
+            if not root.is_dir() or not self.path.is_file():
+                raise DeveloperError('LINK_STORAGE_UNAVAILABLE', 'connect this installation before checking its clients')
+            for path in (root, self.path):
+                if not path.exists() or any(p.is_symlink() for p in (path, *path.parents)):
+                    raise DeveloperError('LINK_STORAGE_UNAVAILABLE', 'connect this installation before checking its clients')
+                if os.name != 'nt' and (path.stat().st_uid != os.getuid() or stat.S_IMODE(path.stat().st_mode) & 0o077):
+                    raise DeveloperError('LINK_STORAGE_UNSAFE', 'local pairing storage requires owner-only permissions')
+            with self.connect() as db:
+                if db.execute('PRAGMA user_version').fetchone()[0] != 2:
+                    raise DeveloperError('LINK_STORAGE_VERSION', 'connection storage needs setup migration before checking clients')
+            return
         private_directory(root)
         self.path = root / 'links.sqlite3'
         if self.path.is_symlink():
@@ -85,7 +99,7 @@ class State:
 
     @contextlib.contextmanager
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=20)
+        db = sqlite3.connect(self.path.absolute().as_uri() + '?mode=ro', uri=True, timeout=20) if self.read_only else sqlite3.connect(self.path, timeout=20)
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA foreign_keys=ON')
         # DELETE journal inherits database permissions and avoids persistent WAL copies.

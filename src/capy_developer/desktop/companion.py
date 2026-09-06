@@ -24,9 +24,9 @@ def require(condition: bool, code: str, detail: str) -> None:
 
 
 class Companion:
-    def __init__(self, core, *, transport=None, adapter=None, credential_store=None, clock=time.time):
+    def __init__(self, core, *, transport=None, adapter=None, credential_store=None, clock=time.time, read_only=False):
         self.core = core
-        self.state = State(core.config.data_root / 'desktop', credential_store=credential_store)
+        self.state = State(core.config.data_root / 'desktop', credential_store=credential_store, read_only=read_only)
         self.transport = transport or Transport()
         self.adapter = adapter or CodexAdapter()
         self.clock = clock

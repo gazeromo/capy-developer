@@ -22,9 +22,25 @@ def connection_info(transport, site):
 
 
 class HarnessClient:
+    @classmethod
+    def diagnostics(cls, config, *, transport=None, credential_store=None):
+        # Diagnostics need pairing references, never catalog migrations/toolchains.
+        from types import SimpleNamespace
+        core = SimpleNamespace(config=config)
+        return cls(core, companion=Companion(core, transport=transport,
+            credential_store=credential_store, read_only=True))
+
     def __init__(self, core, *, companion=None):
         self.core = core
         self.companion = companion or Companion(core)
+        if self.companion.state.read_only:
+            import sqlite3
+            try:
+                with self.companion.state.connect() as db:
+                    db.execute('SELECT site,adapter,installation,client,version,transport,challenge FROM harness_clients LIMIT 0')
+            except sqlite3.Error:
+                raise DeveloperError('CLIENT_NOT_CONFIGURED', 'configure the coding client before checking it') from None
+            return
         with self.companion.state.connect() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS harness_clients(
