@@ -3,8 +3,8 @@
 Final integration source is `04317381031d294623abca98093345397179eb3e`.
 The reproducible Developer 0.5.0 wheel is bound in PACKAGE.json and release/.
 This index supersedes the earlier probe-only checkpoint, retained in
-PROBE-HISTORY.md and PROBE-REVIEWS.md. Final source closure is pending the
-recorded CI and checked merges; no production deployment is part of this task.
+PROBE-HISTORY.md and PROBE-REVIEWS.md. Source closure is qualified for checked fast-forward merge; both reviews and CI
+pass. No production deployment is part of this task.
 
 Implemented: explicit local pairing/setup, macOS native handoff into a prepared
 Codex workspace, configured MCP attachment, durable exact-candidate continuation,
