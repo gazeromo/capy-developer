@@ -1,0 +1,25 @@
+{
+  "status": "EXACT_PACKAGE_UPGRADE_VERIFIED",
+  "observed_at": "2026-09-06T08:43:29.174084+00:00",
+  "version": "0.6.0",
+  "source_commit": "ce498c6eeff2b8e161d4e544022a3f91e07abd9f",
+  "wheel_sha256": "fe92b614136905b3dbd53a3473e3d604536eb744367c98a407607fdc4e9b09f4",
+  "wheel_size_bytes": 175887,
+  "installed_payload_files": 31,
+  "all_installed_payloads_match": true,
+  "catalog_pairing_candidate_handler_config_desktop_fingerprints_preserved": true,
+  "process_precondition": "zero target interpreter/native handler processes at preinstall snapshot",
+  "command_scope": "offline no-index no-deps reinstall into same approved stable interpreter",
+  "boundaries": {
+    "setup_invoked": false,
+    "core_constructed": false,
+    "pairing_changed": false,
+    "source_transferred": false,
+    "application_execution": false,
+    "live_site_deployed": false
+  },
+  "rollback_wheel_sha256": "27dd4de0a7b82bd82c492bb23d043b1a31d5789bddfdfe084a43b46257194672",
+  "private_receipt_sha256": "e64a213eff5372ad072553819050ea5deb3b5404e11f6d04f3d9e2e537e26ecc",
+  "authorization": "Explicit owner approval of exact package upgrade",
+  "private_values_in_public_receipt": false
+}
