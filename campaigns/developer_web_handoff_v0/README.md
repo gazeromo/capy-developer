@@ -4,7 +4,7 @@ Final integration source is `04317381031d294623abca98093345397179eb3e`.
 The reproducible Developer 0.5.0 wheel is bound in PACKAGE.json and release/.
 This index supersedes the earlier probe-only checkpoint, retained in
 PROBE-HISTORY.md and PROBE-REVIEWS.md. Final source closure is pending the
-recorded CI and restart evidence; no production deployment is part of this task.
+recorded CI and checked merges; no production deployment is part of this task.
 
 Implemented: explicit local pairing/setup, macOS native handoff into a prepared
 Codex workspace, configured MCP attachment, durable exact-candidate continuation,
@@ -24,7 +24,8 @@ Codex submission or private app-state workaround was used. Windows/Linux pure
 Developer tests do not establish a native desktop adapter on those platforms.
 
 Reporter recovery is bounded to ten failed attempts/eight hours, after which a
-local reopen or explicit sync is needed. A final independent review found that
+active-session reopen or explicit sync is needed. Terminal sessions require
+explicit handoff sync after exhaustion. A final independent review found that
 terminal transient errors stopped prematurely. Repair0431738 and an independent
 installed-package reproduction prove retry through acknowledgment without
 repeating verification or candidate creation; superseded package evidence is kept.

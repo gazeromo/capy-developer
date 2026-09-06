@@ -17,6 +17,7 @@ exited after1 attempt/0 sleeps with1 pending event. Preserve this finding.
 Repair0431738 independently passes the same reproduction from a fresh installed
 replacement wheel:2 attempts/1 sleep/ack4/pending0. All28 payloads match source;
 32 desktop source controls pass. No verification/candidate operation is repeated.
-Final overall product qualification awaits explicit installed restart evidence and
-final index binding. Native/browser results are owner-operated evidence; mocks and
+Final overall bounded product review ACCEPTS the installed restart evidence and
+final index binding: independent rerun of three sequential installed processes
+passes exact continuation, idempotency, retained main/parent and candidate bytes. Native/browser results are owner-operated evidence; mocks and
 opener exit codes are never substituted for actual desktop success.
