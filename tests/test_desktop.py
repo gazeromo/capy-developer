@@ -234,6 +234,71 @@ class DesktopTests(unittest.TestCase):
             self.assertGreater(db.execute('SELECT count(*) FROM outbox').fetchone()[0], 0)
         self.assertTrue(self.companion.sync_once()['ok'])
 
+    def _finish_candidate_for_reporter(self):
+        self.open()
+        commit = self.core.value['workspace']['current_commit']
+        self.core.value['verification'] = {'latest': {'verification_id': 'ver_pass', 'status': 'PASSED', 'candidate_commit': commit}, 'current_head_state': 'VERIFIED'}
+        self.core.value['events'] = [{'type': 'RELEASE_CANDIDATE_READY', 'facts': {'release_candidate_id': CANDIDATE}}]
+        self.core.candidates[CANDIDATE] = dict(ok=True, release_candidate_id=CANDIDATE, verification_id='ver_pass', project_id=PROJECT, session_id=SESSION,
+                                               source={'commit': commit}, bundle={'sha256': 'a' * 64, 'size_bytes': 123})
+        self.core.value['status'] = 'COMPLETED'
+        self.core.value['terminal'] = {'disposition': 'COMPLETED'}
+
+    def test_synchronizer_retries_terminal_candidate_after_brief_outage(self):
+        from capy_developer.desktop_cli import synchronize
+        self._finish_candidate_for_reporter()
+        original = self.transport.post
+        attempts = 0
+        def offline_then_online(*args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise DeveloperError('LINK_OFFLINE', 'brief fixture outage')
+            return original(*args, **kwargs)
+        with mock.patch.object(self.transport, 'post', side_effect=offline_then_online), \
+                mock.patch('capy_developer.desktop_cli.time.sleep') as sleeping, \
+                mock.patch('capy_developer.desktop_cli.random.uniform', return_value=0), \
+                mock.patch.object(self.core, 'verify_development', create=True) as verify, \
+                mock.patch.object(self.core, 'create_release_candidate', create=True) as candidate:
+            result = synchronize(self.companion)
+        self.assertTrue(result['ok'])
+        self.assertEqual(attempts, 2)
+        sleeping.assert_called_once_with(10)
+        verify.assert_not_called()
+        candidate.assert_not_called()
+        self.assertEqual(len(self.core.starts), 1)
+        snapshot = list(self.transport.events[HANDOFF].values())[-1]['snapshot']
+        self.assertEqual(snapshot['candidate_id'], CANDIDATE)
+        self.assertEqual(snapshot['terminal'], 'COMPLETED')
+        with self.companion.state.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM outbox').fetchone()[0], 0)
+
+    def test_synchronizer_stops_on_permanent_terminal_authority_rejection(self):
+        from capy_developer.desktop_cli import synchronize
+        self._finish_candidate_for_reporter()
+        with mock.patch.object(self.transport, 'post', side_effect=DeveloperError('LINK_AUTHORITY_REJECTED', 'revoked')) as posting, \
+                mock.patch('capy_developer.desktop_cli.time.sleep') as sleeping:
+            result = synchronize(self.companion)
+        self.assertFalse(result['ok'])
+        self.assertEqual(posting.call_count, 1)
+        sleeping.assert_not_called()
+        with self.companion.state.connect() as db:
+            self.assertGreater(db.execute('SELECT count(*) FROM outbox').fetchone()[0], 0)
+
+    def test_synchronizer_terminal_outage_retains_bounded_backoff(self):
+        from capy_developer.desktop_cli import synchronize
+        self._finish_candidate_for_reporter()
+        with mock.patch.object(self.transport, 'post', side_effect=DeveloperError('LINK_OFFLINE', 'offline')) as posting, \
+                mock.patch('capy_developer.desktop_cli.time.sleep') as sleeping, \
+                mock.patch('capy_developer.desktop_cli.random.uniform', return_value=0):
+            result = synchronize(self.companion, HANDOFF)
+        self.assertFalse(result['ok'])
+        self.assertEqual(posting.call_count, 10)
+        self.assertEqual(sleeping.call_count, 9)
+        self.assertTrue(all(10 <= call.args[0] <= 60 for call in sleeping.call_args_list))
+        with self.companion.state.connect() as db:
+            self.assertGreater(db.execute('SELECT count(*) FROM outbox').fetchone()[0], 0)
+
     def test_offline_reconciliation_replays_lost_ack_without_rerun(self):
         self.open()
         self.companion.attach(HANDOFF)
@@ -292,6 +357,30 @@ class DesktopTests(unittest.TestCase):
         self.open()
         self.assertEqual(len(self.core.starts), 1)
 
+    def test_codex_adapter_rejects_unsupported_platform_and_missing_workspace_before_open(self):
+        from capy_developer.harnesses.codex import CodexAdapter
+        adapter = CodexAdapter()
+        workspace = Path(self.core.value['workspace']['native_path'])
+        for system, path, code in [('Linux', workspace, 'HARNESS_LAUNCH_UNSUPPORTED'),
+                                   ('Windows', workspace, 'HARNESS_LAUNCH_UNSUPPORTED'),
+                                   ('Darwin', self.root / 'absent-workspace', 'HARNESS_WORKSPACE_INVALID')]:
+            with mock.patch('capy_developer.harnesses.codex.platform.system', return_value=system), \
+                    mock.patch('capy_developer.harnesses.codex.subprocess.run') as opening:
+                with self.assertRaises(DeveloperError) as result:
+                    adapter.launch(path)
+            self.assertEqual(result.exception.code, code)
+            opening.assert_not_called()
+
+    def test_codex_adapter_failed_open_has_safe_actionable_result(self):
+        from capy_developer.harnesses.codex import CodexAdapter
+        failure = subprocess.CalledProcessError(1, ['fixture-opener'], stderr='synthetic-secret-canary')
+        with mock.patch('capy_developer.harnesses.codex.platform.system', return_value='Darwin'), \
+                mock.patch('capy_developer.harnesses.codex.subprocess.run', side_effect=failure):
+            with self.assertRaises(DeveloperError) as result:
+                CodexAdapter().launch(Path(self.core.value['workspace']['native_path']))
+        self.assertEqual(result.exception.code, 'HARNESS_LAUNCH_UNSUPPORTED')
+        self.assertNotIn('synthetic-secret-canary', str(result.exception))
+
     def test_real_core_new_project_uses_same_companion_contract(self):
         from capy_developer.core import DeveloperCore
         config = Config(self.root / 'real/state', self.root / 'real/cache', self.root / 'real/repositories', self.root / 'real/worktrees', self.root / 'real/temp')
@@ -349,6 +438,18 @@ class SetupTests(unittest.TestCase):
         self.assertTrue(self.config.read_bytes().startswith(original))
         self.setup.remove()
         self.assertEqual(self.config.read_bytes(), original)
+
+    def test_missing_swift_prerequisite_preserves_unrelated_config(self):
+        before = self.config.read_bytes()
+        with mock.patch('capy_developer.desktop.setup.platform.system', return_value='Darwin'), \
+                mock.patch('capy_developer.desktop.setup.shutil.which', return_value=None), \
+                mock.patch('capy_developer.desktop.setup.subprocess.run') as subprocesses:
+            with self.assertRaises(DeveloperError) as result:
+                self.setup.install()
+        self.assertEqual(result.exception.code, 'SETUP_PREREQUISITE_MISSING')
+        self.assertEqual(self.config.read_bytes(), before)
+        self.assertFalse(self.setup.receipt.exists())
+        subprocesses.assert_not_called()
 
     def test_unowned_and_modified_entry_are_never_overwritten(self):
         self.config.write_bytes((self.original + '[mcp_servers.capy_developer]\ncommand = "user-custom"\n').encode())

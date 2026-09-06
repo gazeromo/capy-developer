@@ -58,6 +58,7 @@ def start_sync() -> None:
 def synchronize(companion: Companion, handoff_id=None) -> dict:
     # One per-installation reporter, bounded to eight hours and ten offline attempts.
     # It starts only after an explicit local open, never at OS boot or from remote jobs.
+    permanent_errors = {'LINK_AUTHORITY_REJECTED', 'LINK_REMOVED', 'SITE_NOT_PAIRED', 'LINK_CONNECTION_REPLACED'}
     with exclusive_lock(companion.state.root / 'synchronizer.lock', 0,
                         busy_code='LINK_SYNC_ALREADY_RUNNING', busy_detail='this installation already has an active reporter'):
         deadline = time.monotonic() + 8 * 3600
@@ -68,11 +69,17 @@ def synchronize(companion: Companion, handoff_id=None) -> dict:
             if failures >= 10:
                 return result
             with companion.state.connect() as db:
-                rows = db.execute('SELECT last_snapshot,sync_error FROM handoffs').fetchall()
-                pending = db.execute('SELECT count(*) FROM outbox').fetchone()[0]
+                query = '''SELECT last_snapshot,sync_error,
+                           EXISTS(SELECT 1 FROM outbox WHERE outbox.handoff_id=handoffs.handoff_id) AS pending
+                           FROM handoffs'''
+                if handoff_id is None:
+                    rows = db.execute(query).fetchall()
+                else:
+                    rows = db.execute(query + ' WHERE handoff_id=?', (handoff_id,)).fetchall()
             active = any(row['last_snapshot'] and not json.loads(row['last_snapshot'])['terminal']
-                         and row['sync_error'] not in ('LINK_AUTHORITY_REJECTED', 'LINK_REMOVED', 'SITE_NOT_PAIRED', 'LINK_CONNECTION_REPLACED') for row in rows)
-            if not active and (not pending or all(row['sync_error'] for row in rows)):
+                         and row['sync_error'] not in permanent_errors for row in rows)
+            retry_pending = any(row['pending'] and row['sync_error'] not in permanent_errors for row in rows)
+            if not active and not retry_pending:
                 return result
             time.sleep(min(60, 5 * 2 ** min(failures, 4)) + random.uniform(0, 2))
         return {'ok': True, 'status': 'SYNC_WINDOW_ENDED', 'source_retained': True}
