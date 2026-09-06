@@ -49,6 +49,8 @@ def parser() -> argparse.ArgumentParser:
         client.add_parser(name).add_argument("--client-id", required=True)
     work = commands.add_parser("work").add_subparsers(dest="work_command", required=True)
     work.add_parser("list")
+    work.add_parser("sync").add_argument("--handoff-id", required=True)
+    work.add_parser("resume").add_argument("--handoff-id", required=True)
     begin = work.add_parser("begin")
     begin.add_argument("--input")
     begin.add_argument("--input-json")
@@ -126,9 +128,8 @@ def run(arguments: list[str] | None = None) -> dict | None:
         if args.command == "connect":
             from .desktop.transport import Transport
             connection_info(Transport(), args.site)
-            executable = shutil.which(args.client)
-            if executable is None:
-                raise DeveloperError("CLIENT_NOT_INSTALLED", "install and sign in to the coding client first")
+            from .workspace_resume import native_client
+            executable = native_client(args.client)
             try:
                 probe = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=15, check=True)
             except (OSError, subprocess.SubprocessError):
@@ -168,6 +169,11 @@ def run(arguments: list[str] | None = None) -> dict | None:
             return {**harness.connect(args.site, args.client, version, configuration["transport"]), 'configuration':configuration}
         if args.work_command == "list":
             return harness.work()
+        if args.work_command == "sync":
+            return harness.sync(args.handoff_id)
+        if args.work_command == "resume":
+            from .workspace_resume import launch
+            return launch(harness, args.handoff_id)
         result = harness.begin(_read_input(args.input, args.input_json))
         from .desktop_cli import start_sync
         start_sync(core.config)

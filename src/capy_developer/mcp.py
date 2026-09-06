@@ -9,6 +9,9 @@ from .errors import DeveloperError
 
 
 TOOLS = [
+    {"name": "capy_work_sync", "description": "Retry the exact linked status acknowledgment and recover its review URL without rerunning application code or sending source.",
+     "inputSchema": {"type": "object", "required": ["handoff_id"], "additionalProperties": False,
+                     "properties": {"handoff_id": {"type": "string", "pattern": "^hof_[0-9a-f]{32}$"}}}},
     {"name": "capy_client_status", "description": "Inspect the approved computer and truthful historical client checks.",
      "inputSchema": {"type": "object", "required": ["client_id"], "additionalProperties": False,
                      "properties": {"client_id": {"type": "string", "pattern": "^cli_[0-9a-f]{32}$"}}}},
@@ -122,6 +125,11 @@ TOOLS = [
 
 
 def _call(core: DeveloperCore, name: str, arguments: dict) -> dict:
+    if name == "capy_work_sync":
+        if set(arguments) != {"handoff_id"}:
+            raise DeveloperError("WORK_INPUT_INVALID", "provide only handoff_id")
+        from .harness_client import HarnessClient
+        return HarnessClient(core).sync(arguments["handoff_id"])
     if name in {"capy_client_status", "capy_client_check", "capy_work_begin"}:
         from .harness_client import HarnessClient
         harness = HarnessClient(core)

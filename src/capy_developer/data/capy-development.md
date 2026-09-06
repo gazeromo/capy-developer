@@ -18,6 +18,9 @@ Native MCP exposes the same operation as `capy_work_begin`.
 Use only the returned managed workspace and exact session. Read its `CAPY.md`
 and contract references. A returned path is not permission to edit it: use the
 client's normal workspace switch or one supported continuation in that workspace.
+When an in-session switch is unavailable, offer the returned continuation launcher
+as one explicit action. It reopens the same client with the saved objective; do not
+run it silently or ask the user to reconstruct a command or copy session IDs.
 Preserve the user's objective. Attach the returned handoff through
 `development attach` once the client is working there. Do not select a repository,
 initialize Git, substitute a toolchain, or silently take over active work.
@@ -26,7 +29,10 @@ Write ordinary application code and tests. Commit exact source through normal
 Git approvals. Run authoritative `development verify` for that commit. A failed
 verification remains evidence; a new commit needs a new verification. Create a
 `release-candidate` only after verification passes, then finish the session and
-run `handoff sync --once` to confirm the linked status acknowledgment.
+run `work sync --handoff-id <returned handoff>` or `capy_work_sync` to confirm
+the linked status acknowledgment and recover the exact review URL. If reporting
+is offline, preserve the pending report and retry sync; do not rerun verification
+or claim that Capy has acknowledged it.
 
 Return the Capy review URL and describe the result as a prepared candidate.
 Source sending, independent checks, preview and Personal activation retain their

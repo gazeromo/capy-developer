@@ -77,6 +77,18 @@ class HarnessClient:
         return self.companion.transport.post(pair['origin'], '/api/developer-link/harness-v0/' + operation,
             {'site_id': site_id, 'device_id': pair['device_id'], **value}, pair['secret'])
 
+    def sync(self, handoff_id):
+        require(isinstance(handoff_id, str) and bool(re.fullmatch(r'hof_[0-9a-f]{32}', handoff_id)),
+                'WORK_INPUT_INVALID', 'provide an exact linked handoff')
+        handoff = self.companion.state.handoff(handoff_id)
+        pair = self.companion._pair_for_handoff(handoff)
+        result = self.companion.sync_once(handoff_id)
+        progress = self.companion.inspect(handoff_id)
+        with self.companion.state.connect() as db:
+            pending = db.execute('SELECT count(*) FROM outbox WHERE handoff_id=?', (handoff_id,)).fetchone()[0]
+        return {**result, 'acknowledged': result['ok'] and pending == 0, 'progress': progress,
+                'review_url': pair['origin'] + '/developer/requests/' + handoff_id}
+
     def connect(self, site, adapter, version, transport='JSON_CLI'):
         origin(site)
         require(adapter in ('muse', 'codex'), 'CLIENT_UNSUPPORTED', 'choose a supported coding client')
@@ -182,6 +194,11 @@ class HarnessClient:
         progress = self.companion.prepare_uri(make_uri(row['site'], request['handoff_id'], request['launch_generation']), local_request=local)
         handoff = self.companion.state.handoff(request['handoff_id'])
         development = self.core.inspect_development(handoff['session_id'])
+        from .workspace_resume import prepare
+        continuation = (prepare(self.core.config, request['handoff_id'], row['adapter'].split(':', 1)[0])
+                        if development['status'] == 'READY' else
+                        {'supported': False, 'reason': 'This session has ended; start an exact candidate continuation.'})
         return {'ok':True, 'handoff_id':request['handoff_id'], 'development':development,
                 'progress':progress, 'workspace_adoption':'REQUIRED',
+                'continuation': continuation,
                 'review_url':pair['origin'] + '/developer/requests/' + request['handoff_id']}

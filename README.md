@@ -97,3 +97,13 @@ migrating the catalog. Development operations still require write access.
 Muse skill and MCP entry. It retains shared guidance, the catalog, projects, candidates, Codex
 configuration and computer pairing. Revoke computer access separately on the site
 when that is the intended action. Modified or unowned native files stop removal.
+
+Linked work returns an explicit **Continue in prepared workspace** launcher on
+macOS when a client needs to reopen. The launcher resolves the saved objective
+and exact managed session locally; it never runs automatically. Completed work
+requires an exact candidate continuation. Other native reopen platforms remain
+unqualified.
+
+After finishing, `capy_work_sync` (or `capy-dev work sync --handoff-id <id>`)
+retries only the linked report and returns its acknowledgment and review URL.
+Pending/offline reporting does not rerun application checks or send source.
