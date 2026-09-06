@@ -1,0 +1,67 @@
+{
+  "schema": "capy.candidate-transfer-package-release/v0",
+  "status": "OFFLINE_SUBSET_QUALIFIED_NOT_INSTALLED_TO_ACTIVE_COMPANION",
+  "source_commit": "ce498c6eeff2b8e161d4e544022a3f91e07abd9f",
+  "source_tree": "342d346f96ae27f736c2df1e5aa867c3434c355a",
+  "version": "0.6.0",
+  "filename": "capy_developer-0.6.0-py3-none-any.whl",
+  "sha256": "fe92b614136905b3dbd53a3473e3d604536eb744367c98a407607fdc4e9b09f4",
+  "size_bytes": 175887,
+  "source_date_epoch": 1788682126,
+  "clean_git_archive_builds": 2,
+  "byte_identical": true,
+  "payload_source_files_compared": 31,
+  "all_payload_bytes_equal_source": true,
+  "campaign_files_in_wheel": 0,
+  "build_tools": {
+    "python": "3.12.9",
+    "uv": "uv 0.6.4 (04db70662 2025-03-03)",
+    "setuptools": "84.0.0",
+    "mode": "offline isolated PEP517, fixed SOURCE_DATE_EPOCH"
+  },
+  "installed_qualification": {
+    "fresh_venv": true,
+    "offline": true,
+    "no_index": true,
+    "no_dependencies": true,
+    "python_isolated_mode": true,
+    "sibling_source_on_path": false,
+    "config_data_cache_repository_worktree_roots": "all test-owned",
+    "test_files": [
+      "test_submissions.py",
+      "test_link_protocol.py",
+      "test_desktop.py"
+    ],
+    "tests": 53,
+    "passed": true,
+    "native_ui_performed": false
+  },
+  "logs": {
+    "build-a.log": {
+      "sha256": "02d0db250a8d23ece27aa99264e0cf2cda4c55ca954d5bd4c40aed979cd57cc1",
+      "location": "retained task-owned build output"
+    },
+    "build-b.log": {
+      "sha256": "c80e0a14ad95e8e2a1798ea2dd9b9bab8d77250927ecda56e9a2980927dedbf2",
+      "location": "retained task-owned build output"
+    },
+    "offline-install.log": {
+      "sha256": "154f2c66b119fe456d55a8dc296fb7f07b5b0f90151630604723f30da39e0aeb",
+      "location": "retained task-owned build output"
+    },
+    "installed-tests.log": {
+      "sha256": "507c5b8d83e6b75b932e3b212bf4b1337b616e8f2a7dd9fd2d0562f34e29391c",
+      "location": "retained task-owned build output"
+    },
+    "package-checks.json": {
+      "sha256": "24c5151ade60db9d3056e1ca3ea88000a3fa1f40c18b826966b40bdf537fe6b4",
+      "location": "retained task-owned build output"
+    }
+  },
+  "active_companion_modified": false,
+  "setup_config_modified": false,
+  "old_package_preserved": true,
+  "pushed": false,
+  "merged": false,
+  "deployed": false
+}
