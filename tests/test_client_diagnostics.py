@@ -26,7 +26,15 @@ def test_diagnostics_open_readonly_and_cli_does_not_initialize_core(tmp_path, mo
     def forbidden(*args, **kwargs):
         raise AssertionError('client diagnostics must not initialize DeveloperCore')
     monkeypatch.setattr(cli, 'DeveloperCore', forbidden)
+    from capy_developer.desktop import state
+    def no_credentials():
+        raise DeveloperError('CREDENTIAL_STORE_UNAVAILABLE','synthetic unsupported credential backend')
+    monkeypatch.setattr(state,'default_credentials',no_credentials)
     assert cli.run(['client','list']) == {'ok': True, 'clients': []}
+    unavailable=HarnessClient.diagnostics(cfg)
+    assert unavailable.clients()=={'ok':True,'clients':[]}
+    with pytest.raises(DeveloperError,match='unsupported credential backend'):
+        _=unavailable.companion.state.credentials
     assert {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in files} == before
 
 

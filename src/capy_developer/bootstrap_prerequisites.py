@@ -22,6 +22,7 @@ def posix_script(manifest,manifest_sha256,platform):
       '  echo "Compatible Python is already available; use the ordinary verified installer instructions."','  exit 0','fi','done',
       '[ "$(uname -s):$(uname -m)" = '+q(('Darwin:' if platform.startswith('macos') else 'Linux:')+('arm64' if platform=='macos-arm64' else 'aarch64' if platform=='linux-arm64' else 'x86_64'))+' ] || { echo "This bootstrap script targets another platform" >&2; exit 1; }',
       'command -v curl >/dev/null','command -v tar >/dev/null',
+      'command -v '+('lockf' if platform.startswith('macos') else 'flock')+' >/dev/null || { echo "Native file-lock utility missing" >&2; exit 1; }',
       'if command -v shasum >/dev/null; then hash_file() { shasum -a 256 "$1" | cut -d " " -f 1; }; else hash_file() { sha256sum "$1" | cut -d " " -f 1; }; fi',
       'task_base='+base,'task_root="$task_base/'+manifest_sha256+'"',
       'mkdir -p "$task_base"','[ "$(cd "$task_base" && pwd -P)" = "$task_base" ] || { echo "Symlinked prerequisite path refused" >&2; exit 1; }',
@@ -29,6 +30,10 @@ def posix_script(manifest,manifest_sha256,platform):
       '  [ ! -L "$task_root" ] && [ -f "$task_root/manifest.sha256" ] && [ "$(cat "$task_root/manifest.sha256")" = '+q(manifest_sha256)+' ] || { echo "Unowned prerequisite directory preserved" >&2; exit 1; }',
       'else mkdir "$task_root"; printf "%s\\n" '+q(manifest_sha256)+' > "$task_root/manifest.sha256"; fi',
       '[ "$('+('stat -f \"%u:%Lp\"' if platform.startswith('macos') else 'stat -c \"%u:%a\"')+' \"$task_root\")" = "$(id -u):700" ] || { echo "Unsafe prerequisite ownership" >&2; exit 1; }',
+      '[ ! -L "$task_root/bootstrap.lock" ] || exit 1',
+      'exec 9>>"$task_root/bootstrap.lock"',
+      '[ -f "$task_root/bootstrap.lock" ] && [ "$('+('stat -f \"%u:%Lp\"' if platform.startswith('macos') else 'stat -c \"%u:%a\"')+' \"$task_root/bootstrap.lock\")" = "$(id -u):600" ] || exit 1',
+      ('lockf -t 0 9' if platform.startswith('macos') else 'flock -n 9')+' || { echo "Prerequisite setup is active; retry after it finishes" >&2; exit 1; }',
       'download() {',
       '  target="$task_root/$1"; expected="$2"; size="$3"; url="$4"',
       '  [ ! -L "$target" ] || exit 1',
@@ -50,6 +55,7 @@ def posix_script(manifest,manifest_sha256,platform):
       '[ "$(hash_file '+uvpath+')" = "$expected_uv" ] || { echo "Changed uv preserved" >&2; exit 1; }',
       '# Ignore uv environment overrides; all state remains under this owned directory.',
       'run_uv() { if [ -n "${SSL_CERT_FILE:-}" ]; then env -i PATH="$PATH" HOME="$HOME" SSL_CERT_FILE="$SSL_CERT_FILE" "$@"; else env -i PATH="$PATH" HOME="$HOME" "$@"; fi; }',
+      '[ ! -L "$task_root/python.integrity" ] || exit 1',
       'if [ ! -f "$task_root/python.integrity" ]; then',
       '  if [ -e "$task_root/python" ]; then retained=$(mktemp -d "$task_root/interrupted-python.XXXXXX"); mv "$task_root/python" "$retained/python"; fi',
       'run_uv '+uvpath+' --no-config --cache-dir "$task_root/cache" python install --install-dir "$task_root/python" --no-bin --no-registry --python-downloads-json-url "$task_root/'+pin['downloads']['filename']+'" '+q(m['prerequisites']['python_exact']),
@@ -58,12 +64,22 @@ def posix_script(manifest,manifest_sha256,platform):
     python='"$task_root/python/cpython-'+version+'-'+system+'-'+arch+'-'+libc+'/bin/python'+minor+'"'
     managed=python.rsplit('/bin/',1)[0]+'"'
     hasher='shasum -a 256' if platform.startswith('macos') else 'sha256sum'
+    inventory=[
+      'inventory() {',
+      '  destination="$1"; listing=$(mktemp "$task_root/.inventory.XXXXXX")',
+      '  find '+managed+' -type f -exec '+hasher+' {} + > "$listing"',
+      '  find '+managed+' -type l -exec ls -ldn {} + >> "$listing"',
+      '  sort "$listing" > "$destination"; rm -f "$listing"','}']
+    # Define the function before the installation branch so replay also uses it.
+    offset=lines.index('if [ ! -f "$task_root/python.integrity" ]; then')
+    lines[offset:offset]=inventory
     lines += ['  chmod -R a-w '+managed,
-      '  { find '+managed+' -type f -exec '+hasher+' {} + ; find '+managed+' -type l -exec ls -ldn {} + ; } | sort > "$task_root/python.integrity"',
+      '  initial=$(mktemp "$task_root/.integrity.XXXXXX"); inventory "$initial"',
+      '  mv "$initial" "$task_root/python.integrity"',
       'fi',
-      '[ ! -L "$task_root/python.integrity" ] && [ ! -L "$task_root/python" ] || exit 1',
-      'check=$(mktemp "$task_root/.integrity.XXXXXX")',
-      '{ find '+managed+' -type f -exec '+hasher+' {} + ; find '+managed+' -type l -exec ls -ldn {} + ; } | sort > "$check"',
+      '[ ! -L "$task_root/python" ] || exit 1',
+      'check=$(mktemp "$task_root/.integrity.XXXXXX"); inventory "$check"',
       'cmp -s "$check" "$task_root/python.integrity" || { echo "Managed Python changed; preserved without execution" >&2; exit 1; }',
+      'rm -f "$check"',
       python+' -B -I "$task_root/'+m['installer']['filename']+'" --manifest '+q(m['origin']+'/developer/bootstrap/'+m['release_id']+'/manifest.json')+' --manifest-sha256 '+q(manifest_sha256)+' --client "$client"','']
     return '\n'.join(lines).encode()

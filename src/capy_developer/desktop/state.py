@@ -48,7 +48,9 @@ class State:
     def __init__(self, root: Path, *, credential_store=None, read_only=False):
         self.root = root
         self.read_only = read_only
-        self.credentials = credential_store if credential_store is not None else default_credentials()
+        self._credentials = credential_store
+        if not read_only and self._credentials is None:
+            self._credentials = default_credentials()
         if read_only:
             self.path = root / 'links.sqlite3'
             if not root.is_dir() or not self.path.is_file():
@@ -96,6 +98,14 @@ class State:
                 db.execute('''UPDATE handoffs SET pair_installation_id=(
                     SELECT installation_id FROM pairs WHERE pairs.site_id=handoffs.site_id)''')
             db.execute('PRAGMA user_version=2')
+
+    @property
+    def credentials(self):
+        # Metadata diagnostics need no secrets; authentication still requires
+        # the normal protected backend when it is actually used.
+        if self._credentials is None:
+            self._credentials = default_credentials()
+        return self._credentials
 
     @contextlib.contextmanager
     def connect(self):
