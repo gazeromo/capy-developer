@@ -1,5 +1,5 @@
 {
-  "actual_desktop_mcp_call_proven": false,
+  "actual_desktop_mcp_call_proven": true,
   "automated_controls": {
     "accepted_core_search": "PASS",
     "driver": "direct stdio subprocess in separate disposable state",
@@ -33,7 +33,7 @@
     "scope": "new test project .codex/config.toml only"
   },
   "desktop_launch_attempted": false,
-  "desktop_visibility_proven": false,
+  "desktop_visibility_proven": true,
   "driver_blocker": "Computer Use is not allowed to use the app 'com.openai.codex' for safety reasons.",
   "environment_repairs": [
     "Homebrew Python 3.12 has missing sys.executable relocation target; two venv attempts failed. Used available Python 3.14 meeting stated Python 3.11+ prerequisite. Partial test-only venv retained."
@@ -55,6 +55,20 @@
     "successful_core_search": false,
     "tool": "capy_desktop_probe.capy_projects_search"
   },
+  "owner_attempt_2": {
+    "corroborating_receipt": {
+      "desktop_visibility_proven": false,
+      "probe_revision": 2,
+      "schema": "capy.synthetic-mcp-probe/v0",
+      "success": true,
+      "tool": "capy_projects_search"
+    },
+    "normal_trust_prompts": "not reported; do not infer absent",
+    "query": "capy-desktop-probe-20260906",
+    "result": "success; no matches",
+    "tool_call": "capy_projects_search",
+    "workspace_confirmed": true
+  },
   "probe_package": "capy-developer 0.4.0 exact accepted wheel, fresh no-index/no-deps install",
   "probe_python": "3.14.0",
   "probe_repair": {
@@ -71,5 +85,5 @@
     "revision": 2,
     "specific_attempt_cause": "Unconfirmed because original envelope not retained"
   },
-  "status": "OWNER_DESKTOP_REACHED_MCP_PROBE_REPAIRED_RETRY_PENDING"
+  "status": "PASSED_OWNER_OPERATED_DESKTOP_MCP_PROBE"
 }
