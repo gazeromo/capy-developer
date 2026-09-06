@@ -8,6 +8,7 @@ from pathlib import Path
 import platform
 import plistlib
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,8 @@ from .state import private_directory
 
 BEGIN = '# BEGIN CAPY DEVELOPER OWNED MCP V0\n'
 END = '# END CAPY DEVELOPER OWNED MCP V0\n'
+DIAGNOSTIC_NAME = 'native-handler-last-event.json'
+DIAGNOSTIC_PHASES = {'APP_STARTED', 'URL_RECEIVED', 'CHILD_STARTED', 'CHILD_EXITED'}
 
 
 def sha(payload: bytes) -> str:
@@ -85,7 +88,7 @@ class Setup:
     def inspect(self) -> dict:
         receipt = self._read()
         if receipt is None:
-            return {'ok': True, 'status': 'NOT_INSTALLED', 'platform': platform.system()}
+            return {'ok': True, 'status': 'NOT_INSTALLED', 'platform': platform.system(), 'native_handler_diagnostic': self._diagnostic()}
         config = self._config()
         block = receipt['mcp_block'].encode()
         owned = (config.count(block) == 1 and config.count(BEGIN.encode()) == 1 and config.count(END.encode()) == 1
@@ -95,7 +98,35 @@ class Setup:
         return {'ok': owned and intact, 'status': receipt['status'], 'mcp_owned_entry_intact': owned,
                 'handler_intact': intact, 'adapter': 'codex-desktop/v0', 'platform': platform.system(),
                 'receipt': str(self.receipt), 'modified_paths': receipt['modified_paths'],
+                'native_handler_diagnostic': self._diagnostic(),
                 'qualification': 'Installation does not prove actual Codex attachment.'}
+
+    def _diagnostic(self) -> dict | None:
+        """Expose only the native adapter's closed, nonsecret diagnostic shape."""
+        path = self.root / DIAGNOSTIC_NAME
+        try:
+            descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return {'status': 'UNREADABLE'}
+        try:
+            with os.fdopen(descriptor, 'rb') as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_size > 1024 or
+                        (os.name == 'posix' and (info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600))):
+                    return {'status': 'INVALID'}
+                value = decode_json(stream.read(1025), max_bytes=1024)
+            if not isinstance(value, dict) or set(value) not in ({'phase', 'timestamp', 'pid'}, {'phase', 'timestamp', 'pid', 'exit_status'}):
+                return {'status': 'INVALID'}
+            if (not isinstance(value['phase'], str) or value['phase'] not in DIAGNOSTIC_PHASES or type(value['timestamp']) is not int or not 0 < value['timestamp'] < 2 ** 53
+                    or type(value['pid']) is not int or not 0 < value['pid'] <= 2147483647):
+                return {'status': 'INVALID'}
+            if 'exit_status' in value and (value['phase'] != 'CHILD_EXITED' or type(value['exit_status']) is not int or not -2147483648 <= value['exit_status'] <= 2147483647):
+                return {'status': 'INVALID'}
+            return value
+        except (OSError, ValueError):
+            return {'status': 'INVALID'}
 
     def install(self, *, native: bool = True) -> dict:
         with operation_lock(self.root / 'setup.lock'):
@@ -145,10 +176,61 @@ class Setup:
         # All source literals come from this local installation; URL data remains one argv value.
         executable = json.dumps(str(Path(sys.executable).absolute()))
         environment = '[' + ','.join(json.dumps(k) + ':' + json.dumps(v) for k, v in self.environment().items()) + ']'
+        diagnostic_root = json.dumps(str(self.root.absolute()))
         return '''import AppKit
+import Darwin
+
+enum HandlerPhase: String, Codable {
+    case appStarted = "APP_STARTED"
+    case urlReceived = "URL_RECEIVED"
+    case childStarted = "CHILD_STARTED"
+    case childExited = "CHILD_EXITED"
+}
+struct HandlerEvent: Encodable {
+    let phase: HandlerPhase
+    let timestamp: Int64
+    let pid: Int32
+    let exit_status: Int32?
+}
+func recordHandlerEvent(_ phase: HandlerPhase, exitStatus: Int32? = nil) {
+    // This allowlisted receipt deliberately has no URL, argv, environment or error text.
+    let event = HandlerEvent(phase: phase, timestamp: Int64(Date().timeIntervalSince1970),
+                             pid: getpid(), exit_status: exitStatus)
+    guard let payload = try? JSONEncoder().encode(event) else { return }
+    let directory = open(DIAGNOSTIC_ROOT, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    guard directory >= 0 else { return }
+    defer { close(directory) }
+    var info = stat()
+    guard fstat(directory, &info) == 0, info.st_uid == getuid(), info.st_mode & 0o777 == 0o700 else { return }
+    let destination = "native-handler-last-event.json"
+    var existing = stat()
+    if fstatat(directory, destination, &existing, AT_SYMLINK_NOFOLLOW) == 0 {
+        guard existing.st_mode & S_IFMT == S_IFREG, existing.st_uid == getuid(), existing.st_mode & 0o777 == 0o600 else { return }
+    } else if errno != ENOENT { return }
+    let temporary = ".native-handler-event-" + UUID().uuidString + ".tmp"
+    let descriptor = openat(directory, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+    guard descriptor >= 0 else { return }
+    defer { close(descriptor); unlinkat(directory, temporary, 0) }
+    let written = payload.withUnsafeBytes { bytes -> Bool in
+        guard let base = bytes.baseAddress else { return false }
+        var offset = 0
+        while offset < bytes.count {
+            let count = Darwin.write(descriptor, base.advanced(by: offset), bytes.count - offset)
+            if count < 0 && errno == EINTR { continue }
+            if count <= 0 { return false }
+            offset += count
+        }
+        return true
+    }
+    guard written, fsync(descriptor) == 0 else { return }
+    guard renameat(directory, temporary, directory, destination) == 0 else { return }
+    _ = fsync(directory)
+}
+
 final class Delegate: NSObject, NSApplicationDelegate {
     var pending = 0
     func application(_ application: NSApplication, open urls: [URL]) {
+        recordHandlerEvent(.urlReceived)
         for url in urls.prefix(8) {
             if pending >= 8 { break }
             pending += 1
@@ -163,6 +245,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             process.terminationHandler = { task in
                 DispatchQueue.main.async {
                     self.pending -= 1
+                    recordHandlerEvent(.childExited, exitStatus: task.terminationStatus)
                     if task.terminationStatus != 0 {
                         let alert = NSAlert(); alert.messageText = "Capy Developer needs attention"
                         alert.informativeText = "Run capy-dev setup inspect --json, check the paired site and exact toolchain, then choose Open again. Your source is retained."
@@ -171,7 +254,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
                     if self.pending == 0 { NSApp.terminate(nil) }
                 }
             }
-            do { try process.run() } catch {
+            do {
+                try process.run()
+                recordHandlerEvent(.childStarted)
+            } catch {
                 pending -= 1
                 let alert = NSAlert(); alert.messageText = "Capy Developer could not start"
                 alert.informativeText = "Run capy-dev setup inspect --json to check this installation."
@@ -185,12 +271,13 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
     }
 }
+recordHandlerEvent(.appStarted)
 let delegate = Delegate()
 let application = NSApplication.shared
 application.delegate = delegate
 application.setActivationPolicy(.accessory)
 application.run()
-'''.replace('EXECUTABLE', executable).replace('ENVIRONMENT', environment)
+'''.replace('EXECUTABLE', executable).replace('ENVIRONMENT', environment).replace('DIAGNOSTIC_ROOT', diagnostic_root)
 
     @staticmethod
     def _handler_matches(handler: dict | None) -> bool:

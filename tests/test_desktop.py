@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tempfile
 import unittest
@@ -16,7 +17,7 @@ from unittest import mock
 from capy_developer.config import Config
 from capy_developer.desktop import Companion
 from capy_developer.desktop.credentials import FileCredentials, KeychainCredentials
-from capy_developer.desktop.setup import Setup, BEGIN
+from capy_developer.desktop.setup import Setup, BEGIN, DIAGNOSTIC_NAME, atomic
 from capy_developer.desktop.transport import Transport, NoRedirect
 from capy_developer.errors import DeveloperError
 from capy_developer.git import run_git
@@ -324,7 +325,7 @@ class SetupTests(unittest.TestCase):
         self.config = self.root / 'codex/config.toml'
         self.config.parent.mkdir()
         self.original = '# personal comment\nmodel = "owner-choice"\n[mcp_servers.other]\ncommand = "unrelated"\n'
-        self.config.write_text(self.original)
+        self.config.write_bytes(self.original.encode())
         self.setup = Setup(self.core, config_path=self.config, applications=self.root / 'Applications')
 
     def tearDown(self):
@@ -339,17 +340,25 @@ class SetupTests(unittest.TestCase):
         extra = '\n[features]\nowner_feature = true\n'
         self.config.write_bytes(once + extra.encode())
         self.setup.remove()
-        self.assertEqual(self.config.read_text(), self.original + extra)
+        self.assertEqual(self.config.read_bytes(), (self.original + extra).encode())
+
+    def test_setup_preserves_existing_crlf_bytes(self):
+        original = self.original.replace('\n', '\r\n').encode()
+        self.config.write_bytes(original)
+        self.setup.install(native=False)
+        self.assertTrue(self.config.read_bytes().startswith(original))
+        self.setup.remove()
+        self.assertEqual(self.config.read_bytes(), original)
 
     def test_unowned_and_modified_entry_are_never_overwritten(self):
-        self.config.write_text(self.original + '[mcp_servers.capy_developer]\ncommand = "user-custom"\n')
+        self.config.write_bytes((self.original + '[mcp_servers.capy_developer]\ncommand = "user-custom"\n').encode())
         before = self.config.read_bytes()
         with self.assertRaises(DeveloperError):
             self.setup.install(native=False)
         self.assertEqual(self.config.read_bytes(), before)
-        self.config.write_text(self.original)
+        self.config.write_bytes(self.original.encode())
         self.setup.install(native=False)
-        self.config.write_text(self.config.read_text().replace('"mcp"', '"changed"'))
+        self.config.write_bytes(self.config.read_bytes().replace(b'"mcp"', b'"changed"'))
         before = self.config.read_bytes()
         with self.assertRaises(DeveloperError):
             self.setup.remove()
@@ -367,9 +376,9 @@ class SetupTests(unittest.TestCase):
                 self.setup.install(native=False)
         self.assertEqual(self.setup._read()['status'], 'PREPARING')
         self.setup.install(native=False)
-        self.assertEqual(self.config.read_text().count(BEGIN), 1)
+        self.assertEqual(self.config.read_bytes().count(BEGIN.encode()), 1)
         self.setup.remove()
-        self.assertEqual(self.config.read_text(), self.original)
+        self.assertEqual(self.config.read_bytes(), self.original.encode())
 
     def test_native_wrapper_handles_url_events_as_one_argv_without_shell(self):
         swift = self.setup._swift()
@@ -378,6 +387,80 @@ class SetupTests(unittest.TestCase):
         self.assertNotIn('/bin/sh', swift)
         self.assertNotIn('codex exec', swift)
         self.assertNotIn('approval_policy', self.setup._block().decode())
+
+    def test_native_diagnostic_only_projects_closed_nonsecret_fields(self):
+        path = self.setup.root / DIAGNOSTIC_NAME
+        self.assertIsNone(self.setup.inspect()['native_handler_diagnostic'])
+        safe = {'phase': 'CHILD_EXITED', 'timestamp': NOW, 'pid': 123, 'exit_status': 1}
+        atomic(path, canonical(safe))
+        self.assertEqual(self.setup.inspect()['native_handler_diagnostic'], safe)
+        for mutation in ({**safe, 'url': 'synthetic-secret-canary'}, {**safe, 'phase': ['CHILD_EXITED']},
+                         {**safe, 'phase': {'secret': 'synthetic-secret-canary'}}, {**safe, 'timestamp': True},
+                         {**safe, 'pid': 0}, {**safe, 'exit_status': 'synthetic-secret-canary'},
+                         {**safe, 'phase': 'URL_RECEIVED'}):
+            atomic(path, canonical(mutation))
+            result = self.setup.inspect()['native_handler_diagnostic']
+            self.assertEqual(result, {'status': 'INVALID'})
+            self.assertNotIn('synthetic-secret-canary', json.dumps(result))
+        atomic(path, b'x' * 1025)
+        self.assertEqual(self.setup.inspect()['native_handler_diagnostic'], {'status': 'INVALID'})
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX ownership qualification')
+    def test_native_diagnostic_refuses_symlinks_and_nonprivate_files(self):
+        path = self.setup.root / DIAGNOSTIC_NAME
+        safe = {'phase': 'APP_STARTED', 'timestamp': NOW, 'pid': 123}
+        atomic(path, canonical(safe))
+        path.chmod(0o644)
+        self.assertEqual(self.setup.inspect()['native_handler_diagnostic'], {'status': 'INVALID'})
+        path.unlink()
+        target = self.root / 'unrelated-private-file'
+        target.write_bytes(b'synthetic-secret-canary')
+        path.symlink_to(target)
+        self.assertEqual(self.setup.inspect()['native_handler_diagnostic'], {'status': 'UNREADABLE'})
+        self.assertEqual(target.read_bytes(), b'synthetic-secret-canary')
+
+    def test_native_diagnostic_generation_has_fixed_phases_and_atomic_private_writer(self):
+        source = self.setup._swift()
+        self.assertIn('recordHandlerEvent(.appStarted)', source)
+        self.assertIn('recordHandlerEvent(.urlReceived)', source)
+        self.assertIn('recordHandlerEvent(.childStarted)', source)
+        self.assertIn('recordHandlerEvent(.childExited, exitStatus: task.terminationStatus)', source)
+        receipt_writer = source.split('func recordHandlerEvent', 1)[1].split('final class Delegate', 1)[0]
+        self.assertIn('renameat(directory, temporary, directory, destination)', receipt_writer)
+        self.assertIn('O_NOFOLLOW', receipt_writer)
+        self.assertIn('0o600', receipt_writer)
+        self.assertIn('0o700', receipt_writer)
+        self.assertNotIn('url.absoluteString', receipt_writer)
+        self.assertNotIn('process.arguments', receipt_writer)
+        self.assertNotIn('ProcessInfo.processInfo.environment', receipt_writer)
+
+    @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('swiftc'), 'isolated macOS diagnostic writer qualification')
+    def test_native_diagnostic_helper_writes_atomic_private_receipt_without_launching_app(self):
+        # Compile and execute only the pure receipt helper. The delegate,
+        # NSApplication.run, child launch and external URI dispatch are absent.
+        source = self.setup._swift().split('final class Delegate:', 1)[0]
+        source += '\nrecordHandlerEvent(.appStarted)\nrecordHandlerEvent(.childExited, exitStatus: 7)\n'
+        path = self.root / 'diagnostic-writer.swift'
+        path.write_bytes(source.encode())
+        binary = self.root / 'diagnostic-writer'
+        compiled = subprocess.run(['swiftc', str(path), '-o', str(binary)], capture_output=True, text=True, timeout=120)
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=20)
+        receipt = self.setup.root / DIAGNOSTIC_NAME
+        actual = self.setup.inspect()['native_handler_diagnostic']
+        self.assertEqual(actual['phase'], 'CHILD_EXITED')
+        self.assertEqual(actual['exit_status'], 7)
+        self.assertEqual(set(actual), {'phase', 'timestamp', 'pid', 'exit_status'})
+        self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
+        self.assertFalse(list(self.setup.root.glob('.native-handler-event-*.tmp')))
+        # A replaced diagnostic path cannot redirect this writer to another file.
+        receipt.unlink()
+        protected = self.root / 'protected-fixture'
+        protected.write_bytes(b'synthetic-secret-canary')
+        receipt.symlink_to(protected)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=20)
+        self.assertEqual(protected.read_bytes(), b'synthetic-secret-canary')
+        self.assertTrue(receipt.is_symlink())
 
     def test_owned_mcp_command_reaches_real_initialize(self):
         import tomllib
@@ -400,15 +483,15 @@ class SetupTests(unittest.TestCase):
             db.execute('INSERT INTO pairs VALUES (?,?,?,?,?,?,?,?,?,?)', (other, 'https://other.example', '0' * 32, 'a' * 64, None, None, None, NOW + 500, 'PENDING', 'Fixture'))
         self.assertEqual(self.setup.remove_site(link, SITE)['integration'], 'RETAINED_FOR_OTHER_CONNECTIONS')
         self.assertTrue(self.setup.receipt.exists())
-        before = self.config.read_text()
-        self.config.write_text(before.replace('"mcp"', '"user-modified"'))
+        before = self.config.read_bytes()
+        self.config.write_bytes(before.replace(b'"mcp"', b'"user-modified"'))
         with self.assertRaises(DeveloperError):
             self.setup.remove_site(link, other)
         self.assertEqual(link.state.pair(other)['state'], 'PENDING')
-        self.config.write_text(before)
+        self.config.write_bytes(before)
         self.assertEqual(self.setup.remove_site(link, other)['integration'], 'REMOVED')
         self.assertFalse(self.setup.receipt.exists())
-        self.assertEqual(self.config.read_text(), self.original)
+        self.assertEqual(self.config.read_bytes(), self.original.encode())
 
     def test_invalid_and_unpaired_callbacks_leave_nonexistent_roots_absent(self):
         from capy_developer.desktop_cli import run
