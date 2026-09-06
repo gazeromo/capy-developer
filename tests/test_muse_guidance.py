@@ -112,3 +112,28 @@ def test_removal_preflight_recovers_interrupted_uninstall(adapter, monkeypatch):
     assert instance.preflight_remove()[0]['state'] == 'REMOVING'
     monkeypatch.setattr(muse_guidance.subprocess, 'run', command)
     assert instance.remove()['status'] == 'REMOVED'
+
+
+def test_shared_autodiscovery_requires_exact_transaction_and_preserves_shared_files(adapter, monkeypatch):
+    import hashlib
+    instance, source, command = adapter
+    hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in source.iterdir()}
+    def discovered(args, **kwargs):
+        if args[2] == 'inspect' and not instance.target.exists():
+            return subprocess.CompletedProcess(args, 0, json.dumps({'skill': {
+                'id': instance.name, 'scope': 'user', 'path': str(source/'SKILL.md')}}), '')
+        return command(args, **kwargs)
+    monkeypatch.setattr(muse_guidance.subprocess, 'run', discovered)
+    with pytest.raises(DeveloperError, match='not owned'):
+        instance.install(source)
+    receipt = instance.root/'ownership.json'
+    receipt.write_text(json.dumps({'schema':'capy.client-setup/v0','state':'PREPARING','files':hashes}))
+    (source/'entry.py').write_text('changed')
+    with pytest.raises(DeveloperError, match='not owned'):
+        instance.install(source)
+    (source/'entry.py').write_text('print("synthetic")\n')
+    instance.install(source)
+    assert instance.remove()['status'] == 'REMOVED'
+    assert instance.remove()['status'] == 'REMOVED'
+    assert source.exists()
+    instance.install(source)

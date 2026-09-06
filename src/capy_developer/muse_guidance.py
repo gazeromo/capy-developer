@@ -72,10 +72,42 @@ class MuseGuidance:
             'CLIENT_SETUP_CONFLICT', 'native guidance belongs to a different installation')
         return value
 
+    def _shared_discovery(self, installed, source=None):
+        """Recognize only the exact files recorded by the shared setup transaction."""
+        if installed is None or self.target.exists() or self.target.is_symlink():
+            return False
+        receipt = self.root / 'ownership.json'
+        if not receipt.exists():
+            return False
+        try:
+            saved = json.loads(read_owned(receipt))
+            if saved.get('schema') != 'capy.client-setup/v0' or saved.get('state') not in ('PREPARING', 'CONFIGURED'):
+                return False
+            files = saved.get('files', {})
+            guides = [Path(path) for path in files if Path(path).name == 'SKILL.md']
+            if len(guides) != 1:
+                return False
+            directory = guides[0].parent
+            if source is not None and directory != source:
+                return False
+            actual = self._hashes(directory)
+            if files != {str(directory / name): digest for name, digest in actual.items()}:
+                return False
+            path = installed.get('skill', {}).get('path')
+            if not isinstance(path, str):
+                return False
+            if path.startswith('$HOME/'):
+                path = str(Path(self.environment['HOME']) / path[len('$HOME/'):])
+            return path == str(directory / 'SKILL.md')
+        except (ValueError, TypeError, KeyError, AttributeError, OSError, DeveloperError):
+            return False
+
     def preflight(self, source):
         expected = self._hashes(source) if source.exists() else None
         saved = self._saved()
         installed = self._inspect()
+        if self._shared_discovery(installed, source):
+            installed = None
         if installed is not None or self.target.exists() or self.target.is_symlink():
             require(saved is not None and installed is not None and saved.get('state') in ('PREPARING', 'CONFIGURED'),
                 'CLIENT_SETUP_CONFLICT', 'an existing native Muse skill is not owned by this setup')
@@ -103,6 +135,8 @@ class MuseGuidance:
         saved = self._saved()
         require(saved is not None, 'CLIENT_SETUP_CONFLICT', 'no owned native Muse integration to remove')
         installed = self._inspect()
+        if self._shared_discovery(installed):
+            installed = None
         if installed is not None:
             require(saved.get('state') in ('PREPARING','CONFIGURED','REMOVING') and self._hashes(self.target) == saved.get('files'),
                 'CLIENT_SETUP_CONFLICT', 'native Muse guidance changed; removal refused')
@@ -118,7 +152,8 @@ class MuseGuidance:
                 saved['state'] = 'REMOVING'
                 atomic(self.receipt, canonical(saved))
                 self._call('uninstall', self.name)
-            require(self._inspect() is None and not self.target.exists(),
+            remaining = self._inspect()
+            require((remaining is None or self._shared_discovery(remaining)) and not self.target.exists(),
                 'CLIENT_ADAPTER_FAILED', 'Muse integration removal is incomplete')
             saved['state'] = 'REMOVED'
             atomic(self.receipt, canonical(saved))
