@@ -1,0 +1,26 @@
+{
+  "run_id": 34023100344,
+  "tested_commit": "d50c4b4b1ab9f6e40b5d45129eb8fe94510a1b5f",
+  "product_commit": "ce498c6eeff2b8e161d4e544022a3f91e07abd9f",
+  "conclusion": "success",
+  "python": "3.11",
+  "jobs": [
+    {
+      "os": "macos-latest",
+      "tests_run": 166,
+      "skipped": 0
+    },
+    {
+      "os": "ubuntu-latest",
+      "tests_run": 166,
+      "skipped": 2
+    },
+    {
+      "os": "windows-latest",
+      "tests_run": 166,
+      "skipped": 19
+    }
+  ],
+  "nonclaims": "Platform-skipped native controls are not passes; source transfer native gesture separately qualified on macOS only",
+  "log_sha256": "5e944610ea95486f1d7a929c4555c8c4141662ad201d9e30c372695242b5364c"
+}
