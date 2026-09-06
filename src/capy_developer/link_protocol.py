@@ -79,19 +79,24 @@ def make_uri(site_id, handoff_id, launch_generation):
 
 REQUEST_FIELDS = set("schema site_id handoff_id device_id principal_id authority_id workspace_kind workspace_id membership_id intent parent_handoff_id release_candidate_id created_at expires_at request_digest launch_generation".split())
 def validate_request(value):
-    if not isinstance(value, dict) or set(value) != REQUEST_FIELDS:
+    if not isinstance(value, dict):
         raise ProtocolError("REQUEST_SHAPE_INVALID")
-    if value['schema'] != 'capy.developer-link-request/v0':
+    existing = value.get('schema') == 'capy.developer-link-request/v1'
+    if set(value) != (REQUEST_FIELDS | {'project_id'} if existing else REQUEST_FIELDS):
+        raise ProtocolError("REQUEST_SHAPE_INVALID")
+    if value['schema'] not in ('capy.developer-link-request/v0','capy.developer-link-request/v1'):
         raise ProtocolError("REQUEST_SCHEMA_INVALID")
+    if existing and (value['intent'] != 'EXISTING' or not _id(value['project_id'],'prj')):
+        raise ProtocolError("REQUEST_INTENT_INVALID")
     for key, prefix in [('site_id','site'),('handoff_id','hof'),('device_id','dev')]:
         if not _id(value[key],prefix): raise ProtocolError("REQUEST_ID_INVALID")
     for key in ('principal_id','authority_id','workspace_id','membership_id'):
         if not _text(value[key]): raise ProtocolError("REQUEST_AUTHORITY_INVALID")
-    if value['workspace_kind'] not in ('personal','team') or value['intent'] not in ('NEW','CONTINUE'):
+    if value['workspace_kind'] not in ('personal','team') or value['intent'] not in (('EXISTING',) if existing else ('NEW','CONTINUE')):
         raise ProtocolError("REQUEST_INTENT_INVALID")
     if not _int(value['launch_generation']) or not _int(value['created_at'],0,2**53) or not _int(value['expires_at'],value['created_at']+1,2**53):
         raise ProtocolError("REQUEST_TIME_INVALID")
-    if value['intent']=='NEW':
+    if value['intent'] in ('NEW','EXISTING'):
         if value['parent_handoff_id'] is not None or value['release_candidate_id'] is not None: raise ProtocolError("REQUEST_PARENT_INVALID")
     elif not _id(value['parent_handoff_id'],'hof') or (value['release_candidate_id'] is not None and not _id(value['release_candidate_id'],'rc')):
         raise ProtocolError("REQUEST_PARENT_INVALID")

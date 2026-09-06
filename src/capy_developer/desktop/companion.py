@@ -168,7 +168,22 @@ class Companion:
             handoff = self.state.handoff(request['handoff_id'])
             self._pair_for_handoff(handoff)
             if handoff['session_id'] is None:
-                if local_request is not None and request['intent'] == 'NEW':
+                # Recover a durable harness objective after reply/preparation
+                # interruption, including a later website-driven claim.
+                with self.state.connect() as db:
+                    present=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='harness_work'").fetchone()
+                    pending=db.execute('SELECT input,request FROM harness_work WHERE site=? AND installation=? AND request IS NOT NULL',
+                        (pair['site_id'],pair['installation_id'])).fetchall() if present else []
+                matches=[json.loads(r['input']) for r in pending if json.loads(r['request'])['handoff_id']==request['handoff_id']]
+                require(len(matches)<=1,'HANDOFF_CONFLICT','multiple local objectives name this handoff')
+                if matches:
+                    saved={k:matches[0][k] for k in ('request','new','existing') if k in matches[0]}
+                    require(local_request is None or local_request==saved,'HANDOFF_CONFLICT','local objective differs from its durable intent')
+                    local_request=saved
+                if request['intent']=='EXISTING':
+                    require(local_request is None or local_request.get('existing')=={'project_id':request['project_id']},
+                            'HANDOFF_CONFLICT','local existing-project selection differs from its request')
+                if local_request is not None and request['intent'] in ('NEW','EXISTING'):
                     prepared = self.core.start_development({**local_request,
                         'idempotency_key': 'handoff:' + request['site_id'] + ':' + request['handoff_id']})
                 else:
@@ -200,9 +215,13 @@ class Companion:
 
     def _prepare(self, request: dict, *, brief: str | None = None) -> dict:
         key = 'handoff:' + request['site_id'] + ':' + request['handoff_id']
+        require(request['intent']!='EXISTING' or brief is not None,
+                'HANDOFF_LOCAL_INTENT_REQUIRED','resume the original local work intent before preparing this project')
         brief = brief or 'Owner-opened app development. The owner will provide requirements in the interactive coding harness.'
         if request['intent'] == 'NEW':
             return self.core.start_development({'new': {'name': 'New app ' + request['handoff_id'][4:12], 'application_id': 'apps.a' + request['handoff_id'][4:]}, 'request': brief, 'idempotency_key': key})
+        if request['intent'] == 'EXISTING':
+            return self.core.start_development({'existing':{'project_id':request['project_id']},'request':brief,'idempotency_key':key})
         parent = self.state.handoff(request['parent_handoff_id'])
         parent_request = json.loads(parent['request'])
         require(all(parent_request[key] == request[key] for key in ('site_id', 'device_id', 'principal_id', 'authority_id', 'workspace_kind', 'workspace_id', 'membership_id')),

@@ -220,8 +220,9 @@ class HarnessClient:
 
     def begin(self, value):
         require(isinstance(value, dict) and set(value) in (
-            {'client_id','intent_id','request','new'}, {'client_id','intent_id','request','parent_handoff_id'}),
-            'WORK_INPUT_INVALID', 'provide an explicit new app or an exact completed linked handoff')
+            {'client_id','intent_id','request','new'}, {'client_id','intent_id','request','parent_handoff_id'},
+            {'client_id','intent_id','request','existing'}),
+            'WORK_INPUT_INVALID', 'provide an explicit new app, exact registered project or completed linked handoff')
         require(isinstance(value['intent_id'], str) and bool(re.fullmatch(r'[0-9a-f]{32}', value['intent_id'])),
                 'WORK_INTENT_INVALID', 'invalid durable work intent')
         require(isinstance(value['request'], str) and 0 < len(value['request'].strip()) <= 10000,
@@ -231,6 +232,14 @@ class HarnessClient:
             require(all(isinstance(v,str) for v in value['new'].values()), 'WORK_INPUT_INVALID', 'new application identifiers must be strings')
             self.core._normalize_start({'idempotency_key':value['intent_id'], 'request':value['request'], 'new':value['new']})
         parent = value.get('parent_handoff_id')
+        project_id=None
+        if 'existing' in value:
+            selector=value['existing']
+            require(isinstance(selector,dict) and set(selector)=={'project_id'}
+                    and isinstance(selector['project_id'],str) and bool(re.fullmatch(r'prj_[0-9a-f]{32}',selector['project_id'])),
+                    'WORK_INPUT_INVALID','select one exact registered project from the catalog')
+            with self.core.db.connect() as db:
+                project_id=self.core._resolve_existing(db,selector)
         if 'parent_handoff_id' in value:
             require(isinstance(parent, str) and bool(re.fullmatch(r'hof_[0-9a-f]{32}', parent)), 'WORK_INPUT_INVALID', 'invalid parent handoff')
         row = self._client(value['client_id'])
@@ -243,15 +252,17 @@ class HarnessClient:
                 db.execute('INSERT INTO harness_work VALUES (?,?,?,?,?,NULL)',
                            (value['intent_id'], row['site'], row['client'], row['installation'], encoded))
         # Always revalidate current server authority, even after a saved reply.
-        request = validate_request(self._post(row['site'], 'begin', {'client_id':row['client'],
-            'intent_id':value['intent_id'], 'parent_handoff_id':parent}))
+        remote={'client_id':row['client'],'intent_id':value['intent_id'],'parent_handoff_id':parent}
+        if project_id is not None:remote['project_id']=project_id
+        request = validate_request(self._post(row['site'], 'begin', remote))
         pair = self.companion._approved(row['site'])
         require(request['site_id'] == row['site'] and request['device_id'] == pair['device_id']
-                and request['principal_id'] == pair['principal_id'] and request['parent_handoff_id'] == parent,
+                and request['principal_id'] == pair['principal_id'] and request['parent_handoff_id'] == parent
+                and request.get('project_id') == project_id,
                 'WORK_AUTHORITY_MISMATCH', 'site returned work for another authority')
         with self.companion.state.connect() as db:
             db.execute('UPDATE harness_work SET request=? WHERE intent=?', (canonical(request).decode(), value['intent_id']))
-        local = {'new':value['new'], 'request':value['request']} if 'new' in value else {'request':value['request']}
+        local = {k:value[k] for k in ('request','new','existing') if k in value}
         progress = self.companion.prepare_uri(make_uri(row['site'], request['handoff_id'], request['launch_generation']), local_request=local)
         handoff = self.companion.state.handoff(request['handoff_id'])
         development = self.core.inspect_development(handoff['session_id'])

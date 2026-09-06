@@ -14,6 +14,12 @@ a new 32-character hexadecimal `intent_id`, the user's `request`, and `new`
 with `name` and `application_id`. Persist and reuse that input for retries.
 For a completed linked candidate, use `parent_handoff_id` instead of `new`.
 Native MCP exposes the same operation as `capy_work_begin`.
+For a separate session in a registered project, search the catalog and resolve
+one exact project, then use `existing: {"project_id": "<selected project>"}`
+instead of `new`. Ambiguous search results require a choice. This creates a
+separate worktree from the registered repository's default branch; it does not
+copy an active editor's uncommitted work. To continue a completed candidate's
+exact source, use its linked parent as above.
 
 For active linked work, resolve the exact handoff from `work list`. Ask the user
 to confirm the previous editor has stopped before reopening its mutable worktree;
