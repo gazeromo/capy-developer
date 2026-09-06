@@ -9,6 +9,13 @@ from .errors import DeveloperError
 
 
 TOOLS = [
+    {"name": "capy_candidate_pending", "description": "List current website-approved source-send intents for one exact linked handoff. Does not create consent or send source.",
+     "inputSchema": {"type": "object", "required": ["handoff_id"], "additionalProperties": False,
+                     "properties": {"handoff_id": {"type": "string", "pattern": "^hof_[0-9a-f]{32}$"}}}},
+    {"name": "capy_candidate_send", "description": "Only on an explicit user request, send one website-approved candidate through the existing local disclosure confirmation. Does not accept or install an app.",
+     "inputSchema": {"type": "object", "required": ["handoff_id"], "additionalProperties": False,
+                     "properties": {"handoff_id": {"type": "string", "pattern": "^hof_[0-9a-f]{32}$"},
+                                    "submission_id": {"type": "string", "pattern": "^sub_[0-9a-f]{32}$"}}}},
     {"name": "capy_work_sync", "description": "Retry the exact linked status acknowledgment and recover its review URL without rerunning application code or sending source.",
      "inputSchema": {"type": "object", "required": ["handoff_id"], "additionalProperties": False,
                      "properties": {"handoff_id": {"type": "string", "pattern": "^hof_[0-9a-f]{32}$"}}}},
@@ -125,6 +132,14 @@ TOOLS = [
 
 
 def _call(core: DeveloperCore, name: str, arguments: dict) -> dict:
+    if name in {"capy_candidate_pending", "capy_candidate_send"}:
+        expected = ({'handoff_id'}, {'handoff_id', 'submission_id'}) if name == 'capy_candidate_send' else ({'handoff_id'},)
+        if set(arguments) not in expected:
+            raise DeveloperError("TRANSFER_SELECTION_INVALID", "provide only the exact linked work and optional approved submission")
+        from .harness_client import HarnessClient
+        harness = HarnessClient(core)
+        return (harness.pending(arguments['handoff_id']) if name == 'capy_candidate_pending'
+                else harness.send(arguments['handoff_id'], arguments.get('submission_id')))
     if name == "capy_work_sync":
         if set(arguments) != {"handoff_id"}:
             raise DeveloperError("WORK_INPUT_INVALID", "provide only handoff_id")

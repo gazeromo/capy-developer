@@ -14,7 +14,7 @@ class SubmissionTransport:
 
     def _request(self, site, endpoint, pair, payload, size, *, binary=False, generation=None):
         origin(site)
-        if re.fullmatch(r'(capabilities|sub_[0-9a-f]{32}/(grant|bytes))',endpoint) is None:
+        if re.fullmatch(r'(capabilities|pending-v0|sub_[0-9a-f]{32}/(grant|bytes))',endpoint) is None:
             raise DeveloperError('TRANSFER_DESTINATION_INVALID','Invalid fixed transfer endpoint')
         parsed=urlsplit(site); path=PREFIX+endpoint
         headers={'Authorization':'Bearer '+pair['secret'],'Accept':'application/json','Content-Length':str(size),

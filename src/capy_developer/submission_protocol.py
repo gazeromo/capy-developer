@@ -54,3 +54,19 @@ def validate_ack(value, grant):
     check(value['schema']=='capy.candidate-custody/v0' and value['status']=='RECEIVED' and value['submission_id']==grant['submission_id'])
     check(all(value[k]==grant['selection'][k] for k in ('candidate_id','candidate_sha256','candidate_size_bytes')) and type(value['candidate_size_bytes']) is int)
     return value
+
+
+def validate_pending(value, pair, handoff_id):
+    check(isinstance(value, dict) and set(value) == {'schema', 'site_id', 'device_id', 'handoff_id', 'submissions'})
+    check(value['schema'] == 'capy.candidate-pending/v0' and value['site_id'] == pair['site_id']
+          and value['device_id'] == pair['device_id'] and value['handoff_id'] == handoff_id)
+    check(isinstance(value['submissions'], list) and len(value['submissions']) <= 20)
+    seen = set()
+    for item in value['submissions']:
+        check(isinstance(item, dict) and set(item) == {'submission_id', 'generation', 'candidate_id', 'source_commit'})
+        check(identifier(item['submission_id'], 'sub') and integer(item['generation'])
+              and identifier(item['candidate_id'], 'rc') and isinstance(item['source_commit'], str)
+              and re.fullmatch(r'[0-9a-f]{40}', item['source_commit']) is not None)
+        check(item['submission_id'] not in seen)
+        seen.add(item['submission_id'])
+    return value

@@ -35,6 +35,11 @@ is offline, preserve the pending report and retry sync; do not rerun verificatio
 or claim that Capy has acknowledged it.
 
 Return the Capy review URL and describe the result as a prepared candidate.
+If the user asks to send the version they approved on Capy, use
+`capy_candidate_pending` (or `work pending`) for that handoff, then
+`capy_candidate_send` (or `work send`) for the exact selection. Multiple pending
+versions require a choice. The existing local disclosure confirmation remains
+required; discovering a pending request is never permission to send it.
 Source sending, independent checks, preview and Personal activation retain their
 existing human approvals. Never manufacture consent or claim the app is installed.
 Missing acceptance-profile preparation is a real pending step.

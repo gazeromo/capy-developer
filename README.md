@@ -107,3 +107,11 @@ unqualified.
 After finishing, `capy_work_sync` (or `capy-dev work sync --handoff-id <id>`)
 retries only the linked report and returns its acknowledgment and review URL.
 Pending/offline reporting does not rerun application checks or send source.
+
+For terminal-only source sending, the owner first selects **Send this version**
+on Capy. `capy_candidate_pending` / `capy-dev work pending --handoff-id <id>` lists
+the current approved intents for that work. On the user's explicit request,
+`capy_candidate_send` / `capy-dev work send --handoff-id <id>` reuses the existing
+sender and native local disclosure confirmation. Multiple pending intents require
+an exact `submission_id` / `--submission-id` selection. This does not approve
+independent checks, prepare a semantic acceptance profile, or install an app.

@@ -54,6 +54,32 @@ class TransferTests(unittest.TestCase):
   self.transport.upload.side_effect=upload
   self.confirm=Mock(return_value=True)
   self.service=Submissions(self.companion,transport=self.transport,confirm=self.confirm)
+ def test_terminal_facade_preserves_native_confirmation_and_exact_send(self):
+  from capy_developer.harness_client import HarnessClient
+  harness=HarnessClient(self.core,companion=self.companion)
+  response=dict(schema='capy.candidate-pending/v0',site_id=SITE,device_id=DEVICE,handoff_id=HANDOFF,
+                submissions=[dict(submission_id=SUB,generation=1,candidate_id=CAND,source_commit='a'*40)])
+  pending=Mock();pending.post.return_value=response
+  with patch('capy_developer.desktop.submission_transport.SubmissionTransport',return_value=pending), patch('capy_developer.desktop.submissions.Submissions',return_value=self.service):
+   self.confirm.return_value=False
+   with self.assertRaises(DeveloperError):harness.send(HANDOFF)
+   self.assertEqual(self.uploads,[])
+   self.confirm.return_value=True
+   self.assertEqual(harness.send(HANDOFF),self.ack)
+  self.assertEqual(self.uploads,[self.payload])
+  self.assertEqual(self.confirm.call_count,2)
+ def test_terminal_facade_never_guesses_missing_or_multiple_consents(self):
+  from capy_developer.harness_client import HarnessClient
+  harness=HarnessClient(self.core,companion=self.companion)
+  response=dict(schema='capy.candidate-pending/v0',site_id=SITE,device_id=DEVICE,handoff_id=HANDOFF,submissions=[])
+  pending=Mock();pending.post.return_value=response
+  with patch('capy_developer.desktop.submission_transport.SubmissionTransport',return_value=pending), patch('capy_developer.desktop.submissions.Submissions',return_value=self.service):
+   with self.assertRaises(DeveloperError):harness.send(HANDOFF)
+   first=dict(submission_id=SUB,generation=1,candidate_id=CAND,source_commit='a'*40)
+   response['submissions']=[first,{**first,'submission_id':'sub_'+'9'*32}]
+   with self.assertRaises(DeveloperError):harness.send(HANDOFF)
+   self.confirm.assert_not_called();self.assertEqual(self.uploads,[])
+   self.assertEqual(harness.send(HANDOFF,SUB),self.ack)
  def test_exact_transfer_replay_and_unchanged_handoff(self):
   with self.companion.state.connect() as db: before=[tuple(x) for x in db.execute('SELECT * FROM handoffs')]
   self.assertEqual(self.service.send(URI),self.ack)

@@ -51,6 +51,10 @@ def parser() -> argparse.ArgumentParser:
     work.add_parser("list")
     work.add_parser("sync").add_argument("--handoff-id", required=True)
     work.add_parser("resume").add_argument("--handoff-id", required=True)
+    work.add_parser("pending").add_argument("--handoff-id", required=True)
+    send = work.add_parser("send")
+    send.add_argument("--handoff-id", required=True)
+    send.add_argument("--submission-id")
     begin = work.add_parser("begin")
     begin.add_argument("--input")
     begin.add_argument("--input-json")
@@ -174,6 +178,10 @@ def run(arguments: list[str] | None = None) -> dict | None:
         if args.work_command == "resume":
             from .workspace_resume import launch
             return launch(harness, args.handoff_id)
+        if args.work_command == "pending":
+            return harness.pending(args.handoff_id)
+        if args.work_command == "send":
+            return harness.send(args.handoff_id, args.submission_id)
         result = harness.begin(_read_input(args.input, args.input_json))
         from .desktop_cli import start_sync
         start_sync(core.config)

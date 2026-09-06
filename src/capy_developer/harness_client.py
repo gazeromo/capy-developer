@@ -89,6 +89,36 @@ class HarnessClient:
         return {**result, 'acknowledged': result['ok'] and pending == 0, 'progress': progress,
                 'review_url': pair['origin'] + '/developer/requests/' + handoff_id}
 
+    def pending(self, handoff_id):
+        require(isinstance(handoff_id, str) and bool(re.fullmatch(r'hof_[0-9a-f]{32}', handoff_id)),
+                'WORK_INPUT_INVALID', 'provide an exact linked handoff')
+        from .desktop.submission_transport import SubmissionTransport
+        from .submission_protocol import validate_pending
+        handoff = self.companion.state.handoff(handoff_id)
+        pair = self.companion._pair_for_handoff(handoff)
+        response = SubmissionTransport().post(pair['origin'], 'pending-v0',
+            dict(schema='capy.candidate-pending-request/v0', site_id=pair['site_id'],
+                 device_id=pair['device_id'], handoff_id=handoff_id), pair)
+        return validate_pending(response, pair, handoff_id)
+
+    def send(self, handoff_id, submission_id=None):
+        from .desktop.submissions import Submissions
+        from .submission_protocol import identifier, parse_uri
+        require(submission_id is None or identifier(submission_id, 'sub'),
+                'TRANSFER_SELECTION_INVALID', 'provide an exact approved submission')
+        pending = self.pending(handoff_id)
+        choices = pending['submissions']
+        if submission_id is not None:
+            choices = [choice for choice in choices if choice['submission_id'] == submission_id]
+        require(len(choices) == 1, 'TRANSFER_SELECTION_REQUIRED',
+                'select one current website-approved submission; no candidate was sent')
+        selected = choices[0]
+        uri = ('capy-dev://submission/' + selected['submission_id'] + '?site=' + pending['site_id']
+               + '&send=' + str(selected['generation']))
+        parse_uri(uri)
+        # Existing grant, immutable-candidate and local disclosure checks stay authoritative.
+        return Submissions(self.companion).send(uri)
+
     def connect(self, site, adapter, version, transport='JSON_CLI'):
         origin(site)
         require(adapter in ('muse', 'codex'), 'CLIENT_UNSUPPORTED', 'choose a supported coding client')
