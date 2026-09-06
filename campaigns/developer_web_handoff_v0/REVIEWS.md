@@ -1,33 +1,22 @@
-# Bounded capability-probe review
+# Independent final reviews
 
-Reviewer: native gpt-6-astra / medium, fresh context, task scope probe_review.
-This is preparation review, not either final product completion gate.
+Two genuinely fresh native Astra/medium reviewers inspected exact source, exercised
+independent controls and examined the real journey evidence. They did not implement
+the reviewed code. Earlier probe review is preserved in PROBE-REVIEWS.md.
 
-Initial independent controls: initialize, single-tool discovery, accepted-core
-fixed search, receipt plus seven negative controls (start, alternate query, extra
-limit, null params, resources/read, array message, non-string method). Pass;
-only disposable-root catalog/directories/receipt written. No production access.
+Authority reviewer: ACCEPT source04317381031d294623abca98093345397179eb3e and
+replacement wheel27dd4de0a7b82bd82c492bb23d043b1a31d5789bddfdfe084a43b46257194672.
+All28 package payloads match. The initial55 cross-repository controls and six
+repair-focused controls passed. Pairing/origin/device/CSRF isolation, ownership,
+credentials, replay/uncertain launch and default-off runtime boundaries passed.
+Dirty candidate-shaped local reports were assessed as optional defense-in-depth;
+the server labels all status as computer-reported and does not confer acceptance.
 
-Minor finding: rejected requests lost JSON-RPC request IDs. Parent preserved only
-string/integer IDs and added assertions. Fresh follow-up: focused test passes;
-six independent controls confirm valid-ID correlation and no ID carry-over for
-malformed, absent or boolean IDs. Original finding retained here.
-
-Final qualification: synthetic probe preparation verified, no remaining material
-findings. Actual desktop launch/MCP attachment unproven; no product acceptance.
-Both reviewer passes use temporary roots and leave desktop-state untouched.
-
-No product-worker delegation occurred before the desktop proof. Usage telemetry
-was not exposed; no aggregate token estimate is claimed.
-
-## Owner attempt 1 and bounded repair
-
-Owner reports correct workspace and actual MCP call reaching the probe, but
--32602 rejection. Original envelope was not retained; do not claim its exact
-shape. Whole-envelope equality rejects permitted `_meta`; advertised optional
-limit also exceeded probe policy. Revision 2 strips only object-valued `_meta`
-before core dispatch and advertises the exact allowed query. Two focused tests
-pass, including metadata canaries and unchanged negative controls. This repair
-is parent-verified; prior independent review applies to revision 1 only.
-MCP metadata reference: https://modelcontextprotocol.io/specification/2025-06-18/basic/utilities/progress
-Actual desktop successful core invocation remains pending a fresh conversation.
+Product reviewer initially REJECTED terminal-offline retry: old installed reporter
+exited after1 attempt/0 sleeps with1 pending event. Preserve this finding.
+Repair0431738 independently passes the same reproduction from a fresh installed
+replacement wheel:2 attempts/1 sleep/ack4/pending0. All28 payloads match source;
+32 desktop source controls pass. No verification/candidate operation is repeated.
+Final overall product qualification awaits explicit installed restart evidence and
+final index binding. Native/browser results are owner-operated evidence; mocks and
+opener exit codes are never substituted for actual desktop success.

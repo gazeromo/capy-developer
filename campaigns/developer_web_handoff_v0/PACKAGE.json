@@ -1,0 +1,8 @@
+{
+  "source_commit": "04317381031d294623abca98093345397179eb3e",
+  "source_tree": "cd5c38c7cf14bc6a9dfbb8848ebcf857b8cc2914",
+  "wheel_sha256": "27dd4de0a7b82bd82c492bb23d043b1a31d5789bddfdfe084a43b46257194672",
+  "wheel_size": 169307,
+  "two_clean_snapshot_builds_identical": true,
+  "supersedes_unaccepted_wheel_sha256": "d9d031074c9bed665a975cac65fb50af5752c42deb426f3075e02658df7fda98"
+}

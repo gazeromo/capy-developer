@@ -1,27 +1,32 @@
-# Developer Web Handoff V0 capability checkpoint
+# Developer Web Handoff and Progress V0
 
-This is preparation for the required first desktop probe, not product completion.
-`BASELINE.json` records the exact accepted source/package and owner authority.
-`HARNESS-CAPABILITY-PROBE.json` records the tested subset and the driver restriction.
+Final integration source is `04317381031d294623abca98093345397179eb3e`.
+The reproducible Developer 0.5.0 wheel is bound in PACKAGE.json and release/.
+This index supersedes the earlier probe-only checkpoint, retained in
+PROBE-HISTORY.md and PROBE-REVIEWS.md. Final source closure is pending the
+recorded CI and restart evidence; no production deployment is part of this task.
 
-`probe_server.py` uses the accepted installed core and exposes only one fixed
-synthetic catalog search through MCP. All roots belong to the test. Its receipt
-proves receipt of a tool call, never desktop visibility or production attachment.
-`test_probe.py` runs the protocol and rejection controls in a different temporary
-root, so automation cannot populate the owner's desktop probe receipt. Run it
-with an interpreter containing the exact accepted Developer 0.4.0 package.
+Implemented: explicit local pairing/setup, macOS native handoff into a prepared
+Codex workspace, configured MCP attachment, durable exact-candidate continuation,
+and bounded local status reporting. Candidates remain unaccepted/uninstalled.
+Configured MCP lifecycle guidance avoids accidentally selecting another CLI catalog.
 
-The owner probe has a new project-scoped MCP entry and tiny AGENTS.md/CAPY.md.
-No global configuration, model/approval/sandbox settings or production state
-were changed. Normal Codex project trust may be required and must be observed.
-Removal can remove this test folder/entry after preserving evidence; no shared
-config rollback or source deletion is needed. This is not the shipping setup.
+Owner-operated isolated HTTPS qualification completed an initial CSV application,
+its exact-source feature continuation, and a separate frozen conformance defect
+followed by repair. Candidate bytes, exact commits, preserved failed verifications,
+and clean completed sessions were independently inspected. Private site identities
+and detailed evidence remain in the authoritative private runtime campaign.
 
-Official interfaces checked on 2026-09-06:
-- https://learn.chatgpt.com/docs/reference/commands (threads/new with local path)
-- https://learn.chatgpt.com/docs/extend/mcp?surface=cli (project-scoped stdio MCP)
+The qualified native path is macOS with Chrome 152.0.7977.77 and Codex desktop
+26.901.41600 (build 7982), CLI 0.147.0. The owner approves the normal external-app
+popup. Embedded browser dispatch was unreliable; it is not qualified. No automated
+Codex submission or private app-state workaround was used. Windows/Linux pure
+Developer tests do not establish a native desktop adapter on those platforms.
 
-Computer Use refuses the Codex application for safety reasons. There was no
-alternative automation or private app-state access. The documented deep link
-and a harmless prompt have been given to the owner. No real desktop success,
-unsupported-client conclusion, 0.5.0 implementation or final acceptance is claimed.
+Reporter recovery is bounded to ten failed attempts/eight hours, after which a
+local reopen or explicit sync is needed. A final independent review found that
+terminal transient errors stopped prematurely. Repair0431738 and an independent
+installed-package reproduction prove retry through acknowledgment without
+repeating verification or candidate creation; superseded package evidence is kept.
+
+See REVIEWS.md, PACKAGE.json and the final CLOSURE.md for exact qualification.
