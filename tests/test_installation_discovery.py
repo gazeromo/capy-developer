@@ -130,3 +130,15 @@ def test_pinned_entrypoint_roots_override_different_global_locator(tmp_path, mon
     result = cli.run(['installation','inspect'])
     assert result['source'] == 'EXPLICIT'
     assert result['technical_details']['roots'] == roots(original)
+
+
+def test_historical_python_requires_exact_owned_entry_and_selected_roots(tmp_path):
+    import sys
+    from capy_developer.installation import historical_python
+    original,path=installed(tmp_path)
+    before=path.read_bytes()
+    assert historical_python(original,path)==sys.executable
+    assert path.read_bytes()==before
+    path.write_text(path.read_text().replace('args = [','args = ["changed", '))
+    with pytest.raises(DeveloperError):historical_python(original,path)
+    assert historical_python(config(tmp_path/'uninstalled'),tmp_path/'missing') is None

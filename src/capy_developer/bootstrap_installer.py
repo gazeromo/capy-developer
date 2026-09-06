@@ -13,6 +13,9 @@ import sys
 import tempfile
 import urllib.request
 import zipfile
+import stat
+import uuid
+from contextlib import contextmanager
 
 from .bootstrap_manifest import decode, artifact_url, ManifestError, MAX_MANIFEST
 
@@ -53,6 +56,30 @@ def atomic(path, value):
         os.replace(name,path)
     finally:
         Path(name).unlink(missing_ok=True)
+
+
+@contextmanager
+def lease(path):
+    """OS-owned locking survives process death without stale exclusive files."""
+    owned(path)
+    fd=os.open(path,os.O_CREAT|os.O_RDWR|getattr(os,'O_NOFOLLOW',0),0o600)
+    try:
+        info=os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or (os.name!='nt' and (info.st_uid!=os.getuid() or info.st_mode & 0o022)):
+            raise ManifestError('unsafe bootstrap lease')
+        try:
+            if os.name=='nt':
+                import msvcrt
+                if info.st_size==0:os.write(fd,b'0')
+                os.lseek(fd,0,0);msvcrt.locking(fd,msvcrt.LK_NBLCK,1)
+            else:
+                import fcntl
+                fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except OSError:
+            raise ManifestError('bootstrap operation is active; retry after it finishes') from None
+        yield
+    finally:
+        os.close(fd)
 
 
 def environment_root():
@@ -104,17 +131,43 @@ class Installer:
 from pathlib import Path
 sys.path.insert(0,sys.argv[1])
 from capy_developer.config import Config
-from capy_developer.installation import discover,locator_path,roots,ROOT_KEYS
+from capy_developer.installation import discover,locator_path,roots,ROOT_KEYS,historical_python
 current=Config.from_environment()
 found=discover(default=current,explicit=current if all(k in os.environ for k in ROOT_KEYS) else None,config_path=Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex')))/'config.toml',locator=locator_path())
-print(json.dumps(dict(status=found['status'],source=found['source'],roots=roots(found['config']))))
+candidate=historical_python(found['config'],Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex')))/'config.toml') if found['status']=='EXISTING' else None
+print(json.dumps(dict(status=found['status'],source=found['source'],roots=roots(found['config']),python=candidate)))
 """
         with tempfile.TemporaryDirectory(prefix='capy-bootstrap-discovery-') as scratch:
             wheel=Path(scratch)/item['filename'];wheel.write_bytes(raw)
             value=json.loads(self.execute([sys.executable,'-I','-c',script,wheel]))
-        if type(value) is not dict or set(value)!={'status','source','roots'} or value['status'] not in ('EXISTING','FRESH_PROPOSAL'):
+        if type(value) is not dict or set(value)!={'status','source','roots','python'} or value['status'] not in ('EXISTING','FRESH_PROPOSAL'):
             raise ManifestError('invalid discovery result')
         return value
+
+    def reuse_historical(self,m,raw,found):
+        candidate=found.get('python')
+        if candidate is None:return None
+        python=Path(candidate)
+        if not python.is_absolute() or python.name not in ('python','python3','python.exe'):
+            raise ManifestError('historical interpreter path is invalid')
+        venv=owned(python.parent.parent,directory=True)
+        config=owned(venv/'pyvenv.cfg')
+        if not config.exists():return None
+        fields=dict(line.split('=',1) for line in config.read_text().splitlines() if '=' in line)
+        fields={k.strip():v.strip() for k,v in fields.items()}
+        if fields.get('include-system-site-packages')!='false':
+            raise ManifestError('historical environment includes unbounded system packages')
+        version=fields.get('version','').split('.')
+        if len(version)<2 or not all(x.isdigit() for x in version[:2]) or tuple(map(int,version[:2]))<(3,11):return None
+        resolved=python.resolve(strict=True);info=resolved.stat()
+        if not resolved.is_file() or (os.name!='nt' and (info.st_uid not in (0,os.getuid()) or info.st_mode & 0o022)):
+            raise ManifestError('historical interpreter is not safely owned')
+        sites=[venv/'Lib/site-packages'] if os.name=='nt' else list((venv/'lib').glob('python*/site-packages'))
+        if len(sites)!=1:return None
+        metadata=sites[0]/('capy_developer-'+m['developer']['version']+'.dist-info/METADATA')
+        if not metadata.exists():return None
+        self.verify_environment(venv,raw)
+        return python
 
     def provision(self,m,raw):
         """Reuse exact intact owned environment, or create one under an exclusive lease."""
@@ -125,32 +178,38 @@ print(json.dumps(dict(status=found['status'],source=found['source'],roots=roots(
         owned(self.root,directory=True);self.root.mkdir(mode=0o700,parents=True,exist_ok=True)
         folder=self.root/(m['developer']['version']+'-'+item['sha256'][:16])
         owned(folder,directory=True)
-        lease=self.root/(folder.name+'.lock')
-        try:fd=os.open(lease,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
-        except FileExistsError:raise ManifestError('bootstrap operation already active; inspect the existing operation') from None
-        os.close(fd)
+        lock_path=self.root/(folder.name+'.lock')
         expected=dict(schema='capy.bootstrap-environment/v0',version=m['developer']['version'],wheel_sha256=item['sha256'],wheel_size_bytes=item['size_bytes'])
-        try:
+        with lease(lock_path):
             receipt=folder/'bootstrap.json'
+            recovering=False
             if folder.exists():
                 if not receipt.exists():raise ManifestError('existing environment is not owned by bootstrap')
                 owned(receipt)
                 value=json.loads(receipt.read_bytes())
-                if not isinstance(value,dict) or set(value)!=set(expected)|{'state','runtime'} or any(value.get(k)!=v for k,v in expected.items()) or value['state']!='READY':raise ManifestError('existing environment requires repair; preserved without overwrite')
-                if value['runtime']!=self.runtime_identity(folder):raise ManifestError('private interpreter configuration changed')
-                self.verify(folder,raw)
-                return self.python(folder),'REUSED'
-            folder.mkdir(mode=0o700)
-            atomic(receipt,{**expected,'state':'PREPARING'})
-            wheel=folder/item['filename'];wheel.write_bytes(raw);wheel.chmod(0o600)
+                if value=={**expected,'state':'PREPARING'}:
+                    # Never execute a partially installed interpreter. Preserve the entire
+                    # attempt before creating another one at the stable uncommitted path.
+                    partial=owned(folder/'venv',directory=True)
+                    if partial.exists():partial.rename(folder/('interrupted-venv-'+uuid.uuid4().hex))
+                    recovering=True
+                else:
+                    if not isinstance(value,dict) or set(value)!=set(expected)|{'state','runtime'} or any(value.get(k)!=v for k,v in expected.items()) or value['state']!='READY':raise ManifestError('existing environment requires repair; preserved without overwrite')
+                    if value['runtime']!=self.runtime_identity(folder):raise ManifestError('private interpreter configuration changed')
+                    self.verify(folder,raw)
+                    return self.python(folder),'REUSED'
+            else:
+                folder.mkdir(mode=0o700)
+                atomic(receipt,{**expected,'state':'PREPARING'})
+            wheel=owned(folder/item['filename'])
+            if wheel.exists() and wheel.read_bytes()!=raw:raise ManifestError('staged wheel changed; preserve it for inspection')
+            if not wheel.exists():wheel.write_bytes(raw);wheel.chmod(0o600)
             self.execute([sys.executable,'-I','-m','venv',folder/'venv'])
             python=self.python(folder)
             self.execute([python,'-I','-m','pip','install','--require-virtualenv','--no-user','--no-index','--no-deps','--disable-pip-version-check',wheel])
             self.verify(folder,raw)
             atomic(receipt,{**expected,'state':'READY','runtime':self.runtime_identity(folder)})
-            return python,'CREATED'
-        finally:
-            lease.unlink()
+            return python,'RECOVERED' if recovering else 'CREATED'
 
     def runtime_identity(self,folder):
         python=self.python(folder)
@@ -163,8 +222,12 @@ print(json.dumps(dict(status=found['status'],source=found['source'],roots=roots(
 
     def verify(self,folder,raw):
         """Compare installed package bytes with verified wheel before running them."""
+        self.verify_environment(folder/'venv',raw)
+        if not self.python(folder).is_file():raise ManifestError('private interpreter missing')
+
+    def verify_environment(self,venv,raw):
         import io
-        venv=owned(folder/'venv',directory=True)
+        venv=owned(venv,directory=True)
         if os.name=='nt':sites=[venv/'Lib/site-packages']
         else:sites=list((venv/'lib').glob('python*/site-packages'))
         if len(sites)!=1:raise ManifestError('private Python environment layout differs')
@@ -186,7 +249,6 @@ print(json.dumps(dict(status=found['status'],source=found['source'],roots=roots(
             if '__pycache__' in path.parts:continue
             if path.is_file() and path.relative_to(site).as_posix() not in expected_files:
                 raise ManifestError('unexpected installed Developer file')
-        if not self.python(folder).is_file():raise ManifestError('private interpreter missing')
 
 
 def main():
@@ -198,7 +260,9 @@ def main():
     try:
         if shutil.which('git') is None:raise ManifestError('native Git is required; install the normal OS developer tools')
         installer=Installer(environment_root());m=installer.manifest(args.manifest,args.manifest_sha256)
-        raw=installer.wheel(m);found=installer.discover(m,raw);python,status=installer.provision(m,raw)
+        raw=installer.wheel(m);found=installer.discover(m,raw)
+        python=installer.reuse_historical(m,raw,found)
+        if python is None:python,status=installer.provision(m,raw)
         env=os.environ.copy()
         if found['status']=='EXISTING':env.update(found['roots'])
         result=subprocess.run([str(python),'-I','-m','capy_developer.cli','connect','--site',m['origin'],'--client',args.client],env=env,check=False)

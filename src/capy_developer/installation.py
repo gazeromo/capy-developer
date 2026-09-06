@@ -198,3 +198,17 @@ def discover(*, default: Config, config_path: Path, explicit: Config | None = No
     if (default.data_root / "desktop").exists() or (default.data_root / "desktop").is_symlink():
         conflict("an existing partial installation needs repair before fresh setup")
     return {"status": "FRESH_PROPOSAL", "source": "DEFAULT", "config": default}
+
+
+def historical_python(config: Config, config_path: Path) -> str | None:
+    """Return a path only from the existing exact owned desktop configuration."""
+    if not (config.data_root/'desktop/setup.json').exists():
+        return None
+    recognized = historical_config(config_path)
+    if recognized is None or roots(recognized) != roots(config):
+        conflict('historical environment and selected installation disagree')
+    receipt = json.loads(read_owned(config.data_root/'desktop/setup.json'))
+    value = receipt.get('python')
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        conflict('invalid historical Python path')
+    return value
