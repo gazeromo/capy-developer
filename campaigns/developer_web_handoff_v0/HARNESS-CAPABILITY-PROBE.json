@@ -46,7 +46,30 @@
     "same_bundle_id": true,
     "version": "26.814.41957"
   },
+  "owner_attempt_1": {
+    "actual_mcp_attempt_reported": true,
+    "correct_workspace_reported": true,
+    "query": "capy-desktop-probe-20260906",
+    "request_envelope_retained": false,
+    "result": "-32602 only the fixed synthetic read-only search is allowed",
+    "successful_core_search": false,
+    "tool": "capy_desktop_probe.capy_projects_search"
+  },
   "probe_package": "capy-developer 0.4.0 exact accepted wheel, fresh no-index/no-deps install",
   "probe_python": "3.14.0",
-  "status": "PREPARED_AWAITING_OWNER_DESKTOP_PROBE"
+  "probe_repair": {
+    "changes": [
+      "Ignore object-valued request _meta before core dispatch; never persist or forward",
+      "Advertise only exact fixed-query schema"
+    ],
+    "defects": [
+      "Whole-envelope equality rejects protocol _meta",
+      "Advertised optional limit was rejected by handler"
+    ],
+    "desktop_retry": "Fresh conversation required to load repaired server",
+    "qualification": "Two focused tests pass: metadata compatibility, privacy canaries, unchanged rejection boundary and stdio accepted-core invocation in temporary roots",
+    "revision": 2,
+    "specific_attempt_cause": "Unconfirmed because original envelope not retained"
+  },
+  "status": "OWNER_DESKTOP_REACHED_MCP_PROBE_REPAIRED_RETRY_PENDING"
 }
