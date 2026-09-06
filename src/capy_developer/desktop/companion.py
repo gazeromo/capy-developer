@@ -12,7 +12,7 @@ import tempfile
 from ..errors import DeveloperError
 from ..git import run_git
 from ..harnesses.codex import CodexAdapter
-from ..link_protocol import canonical, decode_json, digest, origin, parse_uri, validate_event, validate_request, validate_snapshot
+from ..link_protocol import ProtocolError, canonical, decode_json, digest, origin, parse_uri, validate_event, validate_request, validate_snapshot
 from ..util import operation_lock
 from .state import State, private_directory
 from .transport import Transport
@@ -24,12 +24,13 @@ def require(condition: bool, code: str, detail: str) -> None:
 
 
 class Companion:
-    def __init__(self, core, *, transport=None, adapter=None, clock=time.time):
+    def __init__(self, core, *, transport=None, adapter=None, credential_store=None, clock=time.time):
         self.core = core
-        self.state = State(core.config.data_root / 'desktop')
+        self.state = State(core.config.data_root / 'desktop', credential_store=credential_store)
         self.transport = transport or Transport()
         self.adapter = adapter or CodexAdapter()
         self.clock = clock
+        self.prepared_for_launch = False
 
     def _lock(self):
         return operation_lock(self.state.root / 'operations.lock')
@@ -39,16 +40,24 @@ class Companion:
         require(bool(re.fullmatch(r'site_[0-9a-f]{32}', site_id)), 'SITE_ID_INVALID', 'invalid site identity')
         require(isinstance(label, str) and 0 < len(label) <= 80 and all(ord(c) >= 32 for c in label), 'DEVICE_LABEL_INVALID', 'use a short plain text computer name')
         with self._lock():
+            obsolete_credential = None
             with self.state.connect() as db:
                 existing = db.execute('SELECT * FROM pairs WHERE site_id=?', (site_id,)).fetchone()
                 if existing:
                     require(existing['origin'] == site_origin, 'PAIR_ORIGIN_CONFLICT', 'site identity is already bound to another exact origin')
                     if existing['state'] == 'APPROVED' and existing['expires_at'] > self.clock():
                         return self._public_pair(dict(existing))
-                    require(existing['state'] in ('STARTING', 'PENDING'), 'PAIR_RECONNECT_REQUIRED', 'remove the expired or revoked local connection before pairing again')
-                else:
+                    if existing['state'] in ('REMOVED', 'REVOKED') or existing['expires_at'] <= self.clock():
+                        obsolete_credential = existing['secret']
+                        existing = None
+                if existing is None:
+                    installation = secrets.token_hex(16)
+                    reference = self.state.credentials.store(installation, secrets.token_hex(32))
+                    db.execute('DELETE FROM pairs WHERE site_id=?', (site_id,))
                     db.execute('INSERT INTO pairs VALUES (?,?,?,?,NULL,NULL,NULL,?,?,?)',
-                               (site_id, site_origin, secrets.token_hex(16), secrets.token_hex(32), int(self.clock()) + 600, 'STARTING', label))
+                               (site_id, site_origin, installation, reference, int(self.clock()) + 600, 'STARTING', label))
+            if obsolete_credential:
+                self.state.credentials.remove(obsolete_credential)
             pair = self.state.pair(site_id)
             # The secret is durably protected before any enrollment request.
             result = self.transport.post(site_origin, '/api/developer-link/pair/start', {
@@ -88,16 +97,20 @@ class Companion:
 
     @staticmethod
     def _public_pair(pair: dict) -> dict:
-        return {**{key: pair[key] for key in ('site_id', 'origin', 'device_id', 'expires_at', 'state', 'label')}, 'credential_storage': 'private-local-file', 'credential_scope': 'developer-link only; not isolation from other code running as this OS user'}
+        mechanism = pair.get('credential_storage') or ('macos-keychain' if pair['secret'].startswith('keychain:') else 'private-local-file')
+        return {**{key: pair[key] for key in ('site_id', 'origin', 'device_id', 'expires_at', 'state', 'label')}, 'credential_storage': mechanism, 'credential_scope': 'developer-link only; not isolation from other code running as this OS user'}
 
     def connections(self) -> list[dict]:
         with self.state.connect() as db:
             return [self._public_pair(dict(row)) for row in db.execute('SELECT * FROM pairs ORDER BY site_id')]
 
     def remove_pair(self, site_id: str) -> dict:
-        with self._lock(), self.state.connect() as db:
-            db.execute("UPDATE pairs SET secret='',state='REMOVED',expires_at=0 WHERE site_id=?", (site_id,))
-            db.execute("UPDATE handoffs SET sync_error='LINK_REMOVED' WHERE site_id=?", (site_id,))
+        with self._lock():
+            pair = self.state.pair_record(site_id)
+            self.state.credentials.remove(pair['secret'])
+            with self.state.connect() as db:
+                db.execute("UPDATE pairs SET secret='',state='REMOVED',expires_at=0 WHERE site_id=?", (site_id,))
+                db.execute("UPDATE handoffs SET sync_error='LINK_REMOVED' WHERE site_id=?", (site_id,))
         return {'site_id': site_id, 'removed': True, 'source_retained': True}
 
     def _approved(self, site_id: str) -> dict:
@@ -105,10 +118,35 @@ class Companion:
         require(pair['state'] == 'APPROVED' and pair['expires_at'] > self.clock(), 'SITE_NOT_PAIRED', 'the local site connection is not active')
         return pair
 
+    def _pair_for_handoff(self, handoff: dict) -> dict:
+        pair = self._approved(handoff['site_id'])
+        request = json.loads(handoff['request'])
+        require(handoff['pair_installation_id'] == pair['installation_id'] and request['device_id'] == pair['device_id'] and request['principal_id'] == pair['principal_id'],
+                'LINK_CONNECTION_REPLACED', 'this handoff belongs to an earlier connection; its local source is retained')
+        return pair
+
     def open_uri(self, uri: str) -> dict:
+        self.prepared_for_launch = False
+        try:
+            return self._open_uri(uri)
+        except Exception:
+            if self.prepared_for_launch:
+                # Persisted uncertainty must reach the site even when dispatch fails.
+                # This executes outside the operation lock and preserves the failure.
+                try:
+                    self.sync_once(parse_uri(uri)['handoff_id'])
+                except (DeveloperError, ProtocolError):
+                    pass
+            raise
+
+    def _open_uri(self, uri: str) -> dict:
         parsed = parse_uri(uri)
         with self._lock():
             pair = self._approved(parsed['site_id'])
+            with self.state.connect() as db:
+                prior = db.execute('SELECT * FROM handoffs WHERE handoff_id=?', (parsed['handoff_id'],)).fetchone()
+            if prior is not None:
+                self._pair_for_handoff(dict(prior))
             request = validate_request(self.transport.post(pair['origin'], '/api/developer-link/requests/' + parsed['handoff_id'] + '/claim', {
                 'site_id': pair['site_id'], 'device_id': pair['device_id'], 'launch_generation': parsed['launch_generation'],
             }, pair['secret']))
@@ -122,8 +160,9 @@ class Companion:
                     previous = json.loads(old['request'])
                     require(old['site_id'] == pair['site_id'] and previous['request_digest'] == request['request_digest'], 'HANDOFF_CONFLICT', 'handoff immutable binding differs')
                 else:
-                    db.execute('INSERT INTO handoffs(handoff_id,site_id,request) VALUES (?,?,?)', (request['handoff_id'], pair['site_id'], canonical(request).decode()))
+                    db.execute('INSERT INTO handoffs(handoff_id,site_id,request,pair_installation_id) VALUES (?,?,?,?)', (request['handoff_id'], pair['site_id'], canonical(request).decode(), pair['installation_id']))
             handoff = self.state.handoff(request['handoff_id'])
+            self._pair_for_handoff(handoff)
             if handoff['session_id'] is None:
                 prepared = self._prepare(request)
                 self._usable(prepared)
@@ -134,6 +173,7 @@ class Companion:
             result = self.core.inspect_development(handoff['session_id'])
             self._usable(result)
             self._marker(handoff, result, write=True)
+            self.prepared_for_launch = True
             if parsed['launch_generation'] > handoff['generation']:
                 # Intent commits before the nontransactional OS side effect. Crash means unknown.
                 with self.state.connect() as db:
@@ -213,7 +253,7 @@ class Companion:
     def attach(self, handoff_id: str) -> dict:
         with self._lock():
             handoff = self.state.handoff(handoff_id)
-            self._approved(handoff['site_id'])
+            self._pair_for_handoff(handoff)
             require(handoff['session_id'] is not None, 'HANDOFF_NOT_PREPARED', 'prepare this handoff before attachment')
             result = self.core.inspect_development(handoff['session_id'])
             self._usable(result)
@@ -301,7 +341,7 @@ class Companion:
                 try:
                     self._enqueue(identifier)
                     handoff = self.state.handoff(identifier)
-                    pair = self._approved(handoff['site_id'])
+                    pair = self._pair_for_handoff(handoff)
                     with self.state.connect() as db:
                         rows = db.execute('SELECT event FROM outbox WHERE handoff_id=? ORDER BY sequence LIMIT 64', (identifier,)).fetchall()
                     events = []
@@ -322,4 +362,8 @@ class Companion:
                     with self.state.connect() as db:
                         db.execute('UPDATE handoffs SET sync_error=? WHERE handoff_id=?', (exc.code, identifier))
                     results.append({'handoff_id': identifier, 'ok': False, 'code': exc.code})
+                except ProtocolError:
+                    with self.state.connect() as db:
+                        db.execute("UPDATE handoffs SET sync_error='LINK_PROTOCOL_INVALID' WHERE handoff_id=?", (identifier,))
+                    results.append({'handoff_id': identifier, 'ok': False, 'code': 'LINK_PROTOCOL_INVALID'})
         return {'ok': all(r['ok'] for r in results), 'results': results}

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -13,6 +15,7 @@ from unittest import mock
 
 from capy_developer.config import Config
 from capy_developer.desktop import Companion
+from capy_developer.desktop.credentials import FileCredentials, KeychainCredentials
 from capy_developer.desktop.setup import Setup, BEGIN
 from capy_developer.desktop.transport import Transport, NoRedirect
 from capy_developer.errors import DeveloperError
@@ -135,7 +138,7 @@ class DesktopTests(unittest.TestCase):
         self.core = FakeCore(self.root)
         self.transport = FakeTransport()
         self.adapter = FakeAdapter()
-        self.companion = Companion(self.core, transport=self.transport, adapter=self.adapter, clock=lambda: NOW)
+        self.companion = Companion(self.core, transport=self.transport, adapter=self.adapter, clock=lambda: NOW, credential_store=FileCredentials(test_owned=True))
         self.companion.pair_start('https://capy.example', SITE)
         self.companion.pair_poll(SITE)
 
@@ -184,7 +187,8 @@ class DesktopTests(unittest.TestCase):
         self.adapter.crash = True
         with self.assertRaises(RuntimeError):
             self.open()
-        restarted = Companion(self.core, transport=self.transport, adapter=self.adapter, clock=lambda: NOW)
+        self.assertEqual(list(self.transport.events[HANDOFF].values())[-1]['snapshot']['milestone'], 'LAUNCH_OUTCOME_UNKNOWN')
+        restarted = Companion(self.core, transport=self.transport, adapter=self.adapter, clock=lambda: NOW, credential_store=FileCredentials(test_owned=True))
         self.assertEqual(restarted.inspect(HANDOFF)['snapshot']['milestone'], 'LAUNCH_OUTCOME_UNKNOWN')
         restarted.open_uri(make_uri(SITE, HANDOFF, 1))
         self.assertEqual(len(self.adapter.calls), 1)
@@ -192,6 +196,42 @@ class DesktopTests(unittest.TestCase):
         self.open(2)
         self.assertEqual(len(self.adapter.calls), 2)
         self.assertEqual(len(self.core.starts), 1)
+
+    def test_removed_and_expired_pairings_get_fresh_credentials_and_isolate_old_links(self):
+        self.open()
+        first = self.companion.state.pair(SITE)
+        self.companion.remove_pair(SITE)
+        self.companion.pair_start('https://capy.example', SITE)
+        self.companion.pair_poll(SITE)
+        second = self.companion.state.pair(SITE)
+        self.assertNotEqual(first['secret'], second['secret'])
+        self.assertNotEqual(first['installation_id'], second['installation_id'])
+        before = len(self.transport.calls)
+        with self.assertRaises(DeveloperError) as caught:
+            self.companion.attach(HANDOFF)
+        self.assertEqual(caught.exception.code, 'LINK_CONNECTION_REPLACED')
+        with self.assertRaises(DeveloperError):
+            self.open()
+        self.assertFalse(self.companion.sync_once()['ok'])
+        self.assertEqual(len(self.transport.calls), before)
+        with self.companion.state.connect() as db:
+            db.execute('UPDATE pairs SET expires_at=? WHERE site_id=?', (NOW - 1, SITE))
+        self.companion.pair_start('https://capy.example', SITE)
+        third = self.companion.state.pair(SITE)
+        self.assertNotEqual(second['secret'], third['secret'])
+        self.assertNotEqual(second['installation_id'], third['installation_id'])
+        self.assertEqual(len(self.core.starts), 1)
+
+    def test_protocol_failure_retains_outbox_with_exact_safe_error(self):
+        self.open()
+        self.core.value['workspace']['dirty'] = True
+        with mock.patch.object(self.transport, 'post', side_effect=ProtocolError('synthetic-secret-canary')):
+            result = self.companion.sync_once()
+        self.assertEqual(result['results'][0]['code'], 'LINK_PROTOCOL_INVALID')
+        self.assertNotIn('synthetic-secret-canary', json.dumps(result))
+        with self.companion.state.connect() as db:
+            self.assertGreater(db.execute('SELECT count(*) FROM outbox').fetchone()[0], 0)
+        self.assertTrue(self.companion.sync_once()['ok'])
 
     def test_offline_reconciliation_replays_lost_ack_without_rerun(self):
         self.open()
@@ -255,7 +295,7 @@ class DesktopTests(unittest.TestCase):
         from capy_developer.core import DeveloperCore
         config = Config(self.root / 'real/state', self.root / 'real/cache', self.root / 'real/repositories', self.root / 'real/worktrees', self.root / 'real/temp')
         core = DeveloperCore(config)
-        link = Companion(core, transport=FakeTransport(), adapter=FakeAdapter(), clock=lambda: NOW)
+        link = Companion(core, transport=FakeTransport(), adapter=FakeAdapter(), clock=lambda: NOW, credential_store=FileCredentials(test_owned=True))
         link.pair_start('https://capy.example', SITE)
         link.pair_poll(SITE)
         opened = link.open_uri(make_uri(SITE, HANDOFF, 1))
@@ -348,6 +388,89 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('serverInfo', json.loads(result.stdout)['result'])
         self.assertEqual(entry['command'], str(Path(sys.executable).absolute()))
+
+    def test_last_site_removal_preserves_other_connections_and_config_conflicts(self):
+        link = Companion(self.core, transport=FakeTransport(), credential_store=FileCredentials(test_owned=True), clock=lambda: NOW)
+        link.pair_start('https://capy.example', SITE)
+        link.pair_poll(SITE)
+        self.setup.install(native=False)
+        other = 'site_' + '9' * 32
+        with link.state.connect() as db:
+            row = link.state.pair_record(SITE)
+            db.execute('INSERT INTO pairs VALUES (?,?,?,?,?,?,?,?,?,?)', (other, 'https://other.example', '0' * 32, 'a' * 64, None, None, None, NOW + 500, 'PENDING', 'Fixture'))
+        self.assertEqual(self.setup.remove_site(link, SITE)['integration'], 'RETAINED_FOR_OTHER_CONNECTIONS')
+        self.assertTrue(self.setup.receipt.exists())
+        before = self.config.read_text()
+        self.config.write_text(before.replace('"mcp"', '"user-modified"'))
+        with self.assertRaises(DeveloperError):
+            self.setup.remove_site(link, other)
+        self.assertEqual(link.state.pair(other)['state'], 'PENDING')
+        self.config.write_text(before)
+        self.assertEqual(self.setup.remove_site(link, other)['integration'], 'REMOVED')
+        self.assertFalse(self.setup.receipt.exists())
+        self.assertEqual(self.config.read_text(), self.original)
+
+    def test_invalid_and_unpaired_callbacks_leave_nonexistent_roots_absent(self):
+        from capy_developer.desktop_cli import run
+        absent = self.root / 'must-remain-absent'
+        environment = {'CAPY_DEV_DATA_ROOT': str(absent / 'state'), 'CAPY_DEV_CACHE_ROOT': str(absent / 'cache'),
+                       'CAPY_DEV_REPOSITORIES_ROOT': str(absent / 'repos'), 'CAPY_DEV_WORKTREES_ROOT': str(absent / 'worktrees'),
+                       'CAPY_DEV_VERIFICATION_TEMP_ROOT': str(absent / 'temp')}
+        for uri in ('capy-dev://handoff/invalid', make_uri(SITE, HANDOFF, 1)):
+            with mock.patch.dict(os.environ, environment), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(run(['handoff', 'open', '--uri', uri]), 1)
+            self.assertFalse(absent.exists())
+
+    def test_keychain_references_never_enter_database_as_secrets(self):
+        class TestOwnedVault:
+            mechanism = 'macos-keychain'
+            def __init__(self):
+                self.items = {}
+            def store(self, account, secret):
+                reference = 'keychain:' + account
+                self.items[reference] = secret
+                return reference
+            def read(self, reference):
+                return self.items[reference]
+            def remove(self, reference):
+                self.items.pop(reference, None)
+        vault = TestOwnedVault()
+        link = Companion(self.core, transport=FakeTransport(), credential_store=vault, clock=lambda: NOW)
+        link.pair_start('https://capy.example', SITE)
+        reference = link.state.pair_record(SITE)['secret']
+        secret = link.state.pair(SITE)['secret']
+        self.assertTrue(reference.startswith('keychain:'))
+        self.assertNotIn(secret.encode(), link.state.path.read_bytes())
+        self.assertEqual(link.connections()[0]['credential_storage'], 'macos-keychain')
+        link.remove_pair(SITE)
+        self.assertFalse(vault.items)
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'public macOS framework binding check')
+    def test_keychain_public_framework_queries_and_fail_closed_status(self):
+        # Exercise real public CF allocation/type/lifetime signatures, while mock
+        # SecItem calls guarantee no writes to the user's actual Keychain.
+        import ctypes
+        store = KeychainCredentials()
+        account = 'a' * 32
+        canary = 'b' * 64
+        with mock.patch.object(store.security, 'SecItemAdd', return_value=0) as adding:
+            reference = store.store(account, canary)
+        self.assertEqual(reference, 'keychain:' + account)
+        self.assertEqual(adding.call_count, 1)
+        def copy_item(query, output):
+            buffer = ctypes.create_string_buffer(canary.encode())
+            data = store.cf.CFDataCreate(None, buffer, 64)
+            ctypes.cast(output, ctypes.POINTER(ctypes.c_void_p))[0] = data
+            return 0
+        with mock.patch.object(store.security, 'SecItemCopyMatching', side_effect=copy_item):
+            self.assertEqual(store.read(reference), canary)
+        with mock.patch.object(store.security, 'SecItemDelete', return_value=0):
+            store.remove(reference)
+        with mock.patch.object(store.security, 'SecItemAdd', return_value=-25293):
+            with self.assertRaises(DeveloperError) as result:
+                store.store(account, canary)
+        self.assertEqual(result.exception.code, 'CREDENTIAL_STORE_REJECTED')
+        self.assertNotIn(canary, str(result.exception))
 
 
 if __name__ == '__main__':

@@ -263,3 +263,20 @@ application.run()
                 shutil.rmtree(handler['path'])
             self.receipt.unlink()
             return {'ok': True, 'status': 'REMOVED', 'source_retained': True}
+
+    def remove_site(self, companion, site_id: str) -> dict:
+        # Pairing/removal share a lock: another site cannot become paired between
+        # deciding this is the final connection and removing the owned integration.
+        with companion._lock():
+            pair = companion.state.pair_record(site_id)
+            with companion.state.connect() as db:
+                others = db.execute("SELECT count(*) FROM pairs WHERE site_id!=? AND state IN ('STARTING','PENDING','APPROVED') AND expires_at>?", (site_id, companion.clock())).fetchone()[0]
+            integration = {'ok': True, 'status': 'RETAINED_FOR_OTHER_CONNECTIONS'}
+            if not others:
+                # Ownership conflict preserves the connection credential and source.
+                integration = self.remove()
+            companion.state.credentials.remove(pair['secret'])
+            with companion.state.connect() as db:
+                db.execute("UPDATE pairs SET secret='',state='REMOVED',expires_at=0 WHERE site_id=?", (site_id,))
+                db.execute("UPDATE handoffs SET sync_error='LINK_REMOVED' WHERE site_id=?", (site_id,))
+            return {'ok': True, 'site_id': site_id, 'removed': True, 'integration': integration['status'], 'source_retained': True}

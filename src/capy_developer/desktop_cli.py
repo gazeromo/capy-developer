@@ -10,10 +10,12 @@ import sys
 import time
 
 from .core import DeveloperCore
+from .config import Config
 from .desktop import Companion
 from .desktop.setup import Setup
+from .desktop.state import preflight_open
 from .errors import DeveloperError
-from .link_protocol import ProtocolError
+from .link_protocol import ProtocolError, parse_uri
 from .util import exclusive_lock
 
 
@@ -69,7 +71,7 @@ def synchronize(companion: Companion, handoff_id=None) -> dict:
                 rows = db.execute('SELECT last_snapshot,sync_error FROM handoffs').fetchall()
                 pending = db.execute('SELECT count(*) FROM outbox').fetchone()[0]
             active = any(row['last_snapshot'] and not json.loads(row['last_snapshot'])['terminal']
-                         and row['sync_error'] not in ('LINK_AUTHORITY_REJECTED', 'LINK_REMOVED', 'SITE_NOT_PAIRED') for row in rows)
+                         and row['sync_error'] not in ('LINK_AUTHORITY_REJECTED', 'LINK_REMOVED', 'SITE_NOT_PAIRED', 'LINK_CONNECTION_REPLACED') for row in rows)
             if not active and (not pending or all(row['sync_error'] for row in rows)):
                 return result
             time.sleep(min(60, 5 * 2 ** min(failures, 4)) + random.uniform(0, 2))
@@ -79,6 +81,9 @@ def synchronize(companion: Companion, handoff_id=None) -> dict:
 def run(raw_args) -> int:
     try:
         args = parser().parse_args(raw_args)
+        if args.command == 'handoff' and args.action == 'open':
+            parsed = parse_uri(args.uri)
+            preflight_open(Config.from_environment().data_root, parsed['site_id'])
         core = DeveloperCore()
         companion = Companion(core)
         if args.command == 'setup':
@@ -87,7 +92,7 @@ def run(raw_args) -> int:
                 result = {**setup.inspect(), 'connections': companion.connections()}
             elif args.action == 'remove':
                 if args.site_id:
-                    result = companion.remove_pair(args.site_id)
+                    result = setup.remove_site(companion, args.site_id)
                 else:
                     result = setup.remove()
             elif args.action == 'poll':
@@ -110,8 +115,11 @@ def run(raw_args) -> int:
                         if result['state'] == 'APPROVED':
                             break
         elif args.action == 'open':
-            result = companion.open_uri(args.uri)
-            start_sync()
+            try:
+                result = companion.open_uri(args.uri)
+            finally:
+                if companion.prepared_for_launch:
+                    start_sync()
         elif args.action == 'inspect':
             result = companion.inspect(args.handoff_id)
         elif args.action == 'attach':
