@@ -72,3 +72,28 @@ Changing the Python installation still requires ownership-checked desktop setup.
 Local confirmation/native transfer is qualified for macOS; other platforms fail
 closed when that confirmation is unavailable. Source transfer does not accept or
 install an application. Existing Developer Link V0 message shapes are unchanged.
+
+### Harness-first source preview
+
+The current source branch adds `capy-dev connect --site <HTTPS origin> --client
+muse` for a site implementing the harness-first protocol. This is unfinished
+source work; it is not included in the published 0.6.0 package.
+
+Muse guidance is installed through the native `muse skills` commands. Setup
+records exact ownership, preserves existing skills, and verifies native discovery.
+Setup also adds an owned stdio MCP entry to Muse's documented settings file,
+preserving unrelated settings and other servers. The shared guide and MCP entry
+retain the installation's five original roots. Muse runs trusted MCP helpers
+outside its shell sandbox, with normal native tool approvals; setup does not
+change sandbox or provider settings.
+A fresh Muse session may be needed to load guidance and tools. A configured integration is
+not ready until an actual tool check reaches the paired site.
+
+`capy-dev client list`, `client inspect --client-id <id>` and
+`client check --client-id <id>` read existing local connection storage without
+migrating the catalog. Development operations still require write access.
+
+`capy-dev client remove --client muse` removes only the unchanged, owned native
+Muse skill and MCP entry. It retains shared guidance, the catalog, projects, candidates, Codex
+configuration and computer pairing. Revoke computer access separately on the site
+when that is the intended action. Modified or unowned native files stop removal.

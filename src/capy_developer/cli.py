@@ -44,6 +44,7 @@ def parser() -> argparse.ArgumentParser:
     connect.add_argument("--client", choices=["muse", "codex"], required=True)
     client = commands.add_parser("client").add_subparsers(dest="client_command", required=True)
     client.add_parser("list")
+    client.add_parser("remove").add_argument("--client", choices=["muse"], required=True)
     for name in ("inspect", "check"):
         client.add_parser(name).add_argument("--client-id", required=True)
     work = commands.add_parser("work").add_subparsers(dest="work_command", required=True)
@@ -135,6 +136,23 @@ def run(arguments: list[str] | None = None) -> dict | None:
             version = probe.stdout.strip()
             if not re.fullmatch(r'[A-Za-z0-9 ._()+-]{1,80}', version):
                 raise DeveloperError("CLIENT_VERSION_INVALID", "invalid observed coding client version")
+        muse = None
+        muse_mcp = None
+        if (args.command == 'connect' and args.client == 'muse') or (args.command == 'client' and args.client_command == 'remove'):
+            from .muse_guidance import MuseGuidance
+            from .muse_mcp import MuseMcpSetup
+            executable = shutil.which('muse')
+            if executable is None:
+                raise DeveloperError('CLIENT_NOT_INSTALLED', 'the native Muse client is required to manage its integration')
+            muse = MuseGuidance(found['config'].data_root / 'client-setup', executable)
+            muse_mcp = MuseMcpSetup(found['config'],muse.config/'settings.json')
+            if args.command == 'client':
+                muse.preflight_remove()
+                if muse_mcp.receipt.exists():
+                    muse_mcp.remove()
+                return muse.remove()
+            muse.preflight(Path.home() / '.agents/skills/capy-development')
+            muse_mcp.preflight()
         if args.command == "client":
             harness = HarnessClient.diagnostics(found["config"])
             if args.client_command == "list":
@@ -145,7 +163,7 @@ def run(arguments: list[str] | None = None) -> dict | None:
         if args.command == "connect":
             from .client_setup import ClientSetup
             setup = ClientSetup(core, skills=Path.home() / ".agents/skills", locator=locator_path(),
-                                codex_config=Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml")
+                                codex_config=Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml", muse=muse, muse_mcp=muse_mcp)
             configuration = setup.install(args.client)
             return {**harness.connect(args.site, args.client, version, configuration["transport"]), 'configuration':configuration}
         if args.work_command == "list":

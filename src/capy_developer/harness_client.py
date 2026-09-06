@@ -55,7 +55,7 @@ class HarnessClient:
     def clients(self):
         with self.companion.state.connect() as db:
             rows = db.execute('SELECT site,adapter,client,version,transport FROM harness_clients ORDER BY site,adapter').fetchall()
-        return {'ok':True, 'clients':[dict(r) for r in rows]}
+        return {'ok':True, 'clients':[{**dict(r), 'adapter':r['adapter'].split(':',1)[0]} for r in rows]}
 
     def work(self):
         with self.companion.state.connect() as db:
@@ -101,21 +101,27 @@ class HarnessClient:
             return {'ok':True, 'status':'WAITING_FOR_WORK_APPROVAL', 'approval_url':site + expected, 'ready':False}
         pair = self.companion._approved(site_id)
         with self.companion._lock(), self.companion.state.connect() as db:
-            row = db.execute('SELECT * FROM harness_clients WHERE site=? AND adapter=?', (site_id, adapter)).fetchone()
+            # A newly configured channel is a separate observed client instance.
+            # Keep the old channel's identity/history under the same computer.
+            key = adapter
+            prior = db.execute('SELECT * FROM harness_clients WHERE site=? AND adapter=?', (site_id, adapter)).fetchone()
+            if prior is not None and prior['transport'] != transport:
+                key = adapter + ':' + transport
+            row = db.execute('SELECT * FROM harness_clients WHERE site=? AND adapter=?', (site_id, key)).fetchone()
             if row:
                 require(row['installation'] == pair['installation_id'] and row['version'] == version and row['transport'] == transport,
                         'CLIENT_REGISTRATION_CONFLICT', 'existing client registration differs; inspect it before changing setup')
             else:
                 db.execute('INSERT INTO harness_clients VALUES (?,?,?,?,?,?,NULL)',
-                           (site_id, adapter, pair['installation_id'], 'cli_' + secrets.token_hex(16), version, transport))
-            row = dict(db.execute('SELECT * FROM harness_clients WHERE site=? AND adapter=?', (site_id, adapter)).fetchone())
+                           (site_id, key, pair['installation_id'], 'cli_' + secrets.token_hex(16), version, transport))
+            row = dict(db.execute('SELECT * FROM harness_clients WHERE site=? AND adapter=?', (site_id, key)).fetchone())
         challenge = self._post(site_id, 'register', {'client_id':row['client'], 'label':'Muse Code' if adapter == 'muse' else 'Codex',
                                                   'version':version, 'transport':transport})
         require(set(challenge) == {'client_id','nonce','expires_at'} and challenge['client_id'] == row['client']
                 and isinstance(challenge['nonce'], str) and bool(re.fullmatch(r'[0-9a-f]{64}', challenge['nonce']))
                 and type(challenge['expires_at']) is int, 'CLIENT_CHALLENGE_INVALID', 'invalid site client challenge')
         with self.companion.state.connect() as db:
-            db.execute('UPDATE harness_clients SET challenge=? WHERE site=? AND adapter=?', (canonical(challenge).decode(), site_id, adapter))
+            db.execute('UPDATE harness_clients SET challenge=? WHERE site=? AND adapter=?', (canonical(challenge).decode(), site_id, key))
         return {'ok':True, 'status':'CONFIGURED_WAITING_FOR_TOOL_CHECK', 'site_id':site_id, 'client_id':row['client'], 'ready':False}
 
     def _client(self, client_id):

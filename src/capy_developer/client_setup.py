@@ -1,4 +1,4 @@
-"""Ownership-checked shared workflow guidance; optional native Codex MCP entry."""
+"""Ownership-checked shared workflow guidance and native coding-client adapters."""
 from __future__ import annotations
 
 import hashlib
@@ -15,11 +15,13 @@ from .util import operation_lock
 
 
 class ClientSetup:
-    def __init__(self, core, *, skills: Path, locator: Path, codex_config: Path):
+    def __init__(self, core, *, skills: Path, locator: Path, codex_config: Path, muse=None, muse_mcp=None):
         self.core, self.skills, self.locator, self.codex_config = core, skills, locator, codex_config
         self.root = core.config.data_root / 'client-setup'
         private_directory(self.root)
         self.receipt = self.root / 'ownership.json'
+        self.muse = muse
+        self.muse_mcp = muse_mcp
 
     def _files(self):
         # Only Capy variables are set in this private fixed shim. No shell parsing.
@@ -36,6 +38,10 @@ class ClientSetup:
         validate_catalog(self.core.config)
         with operation_lock(self.root / 'setup.lock'):
             files = self._files()
+            if adapter == 'muse' and self.muse is not None:
+                self.muse.preflight(self.skills / 'capy-development')
+            if adapter == 'muse' and self.muse_mcp is not None:
+                self.muse_mcp.preflight()
             for path in (*files, self.locator, self.core.config.data_root / 'installation.json'):
                 require(not any(p.is_symlink() for p in (path,*path.parents)),
                         'CLIENT_SETUP_CONFLICT', 'client setup paths cannot pass through symlinks')
@@ -90,8 +96,13 @@ class ClientSetup:
                 else:
                     require(setup.inspect()['mcp_owned_entry_intact'], 'CLIENT_SETUP_CONFLICT', 'the historical Codex entry is modified')
             receipt['state'] = 'CONFIGURED'
+            instruction = str(self.skills / 'capy-development/SKILL.md')
+            if adapter == 'muse' and self.muse is not None:
+                instruction = self.muse.install(self.skills / 'capy-development')
+            if adapter == 'muse' and self.muse_mcp is not None:
+                self.muse_mcp.install()
             atomic(self.receipt, canonical(receipt))
             return {'ok':True,'status':'CONFIGURED','ready':False,
-                    'transport':'MCP_STDIO' if adapter == 'codex' else 'JSON_CLI',
-                    'instruction':str(self.skills / 'capy-development/SKILL.md'),
+                    'transport':'MCP_STDIO' if adapter == 'codex' or self.muse_mcp is not None else 'JSON_CLI',
+                    'instruction':instruction,
                     'reload':'A fresh client session may be required to load the tools and guidance.'}
