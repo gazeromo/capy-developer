@@ -136,7 +136,12 @@ def _call(core: DeveloperCore, name: str, arguments: dict) -> dict:
     if name == "capy_development_attach":
         if set(arguments) != {"handoff_id"}:
             raise DeveloperError("ATTACH_INPUT_INVALID", "attach requires only handoff_id")
-        return core.attach_development(arguments["handoff_id"])
+        result = core.attach_development(arguments["handoff_id"])
+        # A fresh harness session may outlive the reporter started by work_begin.
+        # Rejoin the existing bounded, single-installation reporting loop.
+        from .desktop_cli import start_sync
+        start_sync(core.config)
+        return result
     if name == "capy_development_continue":
         return core.continue_development(arguments)
     if name == "capy_projects_search":
