@@ -62,7 +62,17 @@ class ClientSetup:
             previous = json.loads(read_owned(self.receipt)) if self.receipt.exists() else None
             if previous is not None:
                 require(isinstance(previous, dict) and previous.get('schema') == 'capy.client-setup/v0', 'CLIENT_SETUP_CONFLICT', 'invalid client setup ownership receipt')
-                require(previous.get('files') == {str(p):hashlib.sha256(v).hexdigest() for p,v in files.items()},
+                expected_files = {str(p):hashlib.sha256(v).hexdigest() for p,v in files.items()}
+                # An interrupted transaction with no remaining guidance or native
+                # ownership may be retried by a repaired exact environment.
+                empty_partial = (previous.get('state') == 'PREPARING'
+                                 and previous.get('adapters') == ['muse'] and adapter == 'muse'
+                                 and isinstance(previous.get('files'), dict)
+                                 and set(previous['files']) == set(expected_files)
+                                 and all(not p.exists() and not p.is_symlink() for p in files)
+                                 and not (self.root / 'muse-guidance.json').exists()
+                                 and not (self.root / 'muse-guidance.json').is_symlink())
+                require(previous.get('files') == expected_files or empty_partial,
                         'CLIENT_SETUP_CONFLICT', 'existing guidance belongs to another exact environment')
             else:
                 directory = self.skills / 'capy-development'

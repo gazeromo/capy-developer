@@ -81,3 +81,31 @@ def test_interrupted_codex_config_write_can_resume(tmp_path, monkeypatch):
         installer.install('codex')
     monkeypatch.setattr(desktop_setup, 'atomic', original)
     assert installer.install('codex')['status'] == 'CONFIGURED'
+
+
+def test_empty_interrupted_muse_setup_can_resume_from_repaired_environment(tmp_path, monkeypatch):
+    import json
+    installer = setup(tmp_path)
+    from capy_developer import client_setup
+    original = client_setup.atomic
+    def fail(path, payload):
+        if path.name == 'SKILL.md':
+            raise OSError('interrupted')
+        original(path, payload)
+    monkeypatch.setattr(client_setup, 'atomic', fail)
+    with pytest.raises(OSError):
+        installer.install('muse')
+    monkeypatch.setattr(client_setup, 'atomic', original)
+    before = installer.core.config.database.read_bytes()
+    old_files = installer._files()
+    repaired = {path: payload + b'\n# repaired environment\n' for path, payload in old_files.items()}
+    monkeypatch.setattr(installer, '_files', lambda: repaired)
+    # A remaining old file must never be silently replaced.
+    with pytest.raises(DeveloperError, match='another exact environment'):
+        installer.install('muse')
+    for path in old_files:
+        if path.exists(): path.unlink()
+    assert installer.install('muse')['status'] == 'CONFIGURED'
+    assert installer.core.config.database.read_bytes() == before
+    assert json.loads(installer.receipt.read_text())['state'] == 'CONFIGURED'
+    assert all(path.read_bytes() == payload for path, payload in repaired.items())
