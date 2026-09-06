@@ -1,0 +1,52 @@
+{
+  "actual_desktop_mcp_call_proven": false,
+  "automated_controls": {
+    "accepted_core_search": "PASS",
+    "driver": "direct stdio subprocess in separate disposable state",
+    "initialization": "PASS",
+    "mutation_attempt": "REJECTED",
+    "no_repositories_or_worktrees_allocated": "PASS",
+    "non_synthetic_search": "REJECTED",
+    "single_read_only_tool_discovery": "PASS"
+  },
+  "blocker_class": "TEST_DRIVER_ACCESS_DENIED; client support not determined",
+  "claims_excluded": [
+    "HARNESS_ATTACHED",
+    "desktop support qualification",
+    "application development",
+    "candidate preparation",
+    "website pairing",
+    "production changes"
+  ],
+  "cli_version": "0.147.0",
+  "client": {
+    "build": "7982",
+    "bundle_id": "com.openai.codex",
+    "declared_codex_uri_scheme": true,
+    "name": "Codex",
+    "version": "26.901.41600"
+  },
+  "configuration": {
+    "entry": "capy_desktop_probe",
+    "global_config_modified": false,
+    "normal_project_trust": "requires user observation; not bypassed",
+    "scope": "new test project .codex/config.toml only"
+  },
+  "desktop_launch_attempted": false,
+  "desktop_visibility_proven": false,
+  "driver_blocker": "Computer Use is not allowed to use the app 'com.openai.codex' for safety reasons.",
+  "environment_repairs": [
+    "Homebrew Python 3.12 has missing sys.executable relocation target; two venv attempts failed. Used available Python 3.14 meeting stated Python 3.11+ prerequisite. Partial test-only venv retained."
+  ],
+  "next_step": "Owner opens documented local path deep link and submits the CAPY.md read-only probe. Correlate visible CWD and actual MCP tool result with isolated desktop-state receipt. No broader web implementation until proof.",
+  "os": "26.5.2",
+  "other_registered_bundle": {
+    "build": "6744",
+    "name": "ChatGPT",
+    "same_bundle_id": true,
+    "version": "26.814.41957"
+  },
+  "probe_package": "capy-developer 0.4.0 exact accepted wheel, fresh no-index/no-deps install",
+  "probe_python": "3.14.0",
+  "status": "PREPARED_AWAITING_OWNER_DESKTOP_PROBE"
+}

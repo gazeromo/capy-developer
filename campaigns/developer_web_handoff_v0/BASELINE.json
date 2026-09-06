@@ -1,0 +1,16 @@
+{
+  "accepted_wheel_sha256": "99264d02561180d44c002dfe3a71d02c54c70c48036b34d1fadbbd0d4df11de2",
+  "authorization_control_commit": "fbefde3",
+  "base": "9f0d0334e1eedc230f109d13bc9893aac0d56750",
+  "branch": "astra/developer-web-handoff-v0",
+  "coordinator": {
+    "effort": "medium",
+    "evidence": "current turn_context metadata, no conversation export",
+    "model": "gpt-6-astra"
+  },
+  "local_clean_and_remote_main_equal": true,
+  "plan_sha256": "9264e1844e2e63b11db7f924c6f36d69ccff84c663a7a29d38649faa56a41997",
+  "production_accessed": false,
+  "repository": "gazeromo/capy-developer",
+  "task": "CAPY-DEVELOPER-WEB-HANDOFF-AND-PROGRESS-V0"
+}
