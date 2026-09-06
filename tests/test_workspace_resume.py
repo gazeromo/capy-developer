@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 import subprocess
+import shutil
+import os
 
 import pytest
 
@@ -19,8 +21,11 @@ def test_packet_replays_and_quotes_only_fixed_paths(tmp_path, monkeypatch):
     path = Path(result['launcher_path'])
     assert result['requires_explicit_user_action']
     assert workspace_resume.prepare(cfg, HANDOFF, 'muse') == result
-    assert subprocess.run(['/bin/sh', '-n', str(path)]).returncode == 0
-    assert path.stat().st_mode & 0o777 == 0o700
+    shell=shutil.which('sh')
+    assert shell is not None, 'launcher syntax qualification requires sh'
+    assert subprocess.run([shell, '-n', str(path)]).returncode == 0
+    if os.name != 'nt':
+        assert path.stat().st_mode & 0o777 == 0o700
     assert '$literal' in path.read_text()
     compile((path.parent / 'resume.py').read_text(), 'resume.py', 'exec')
     (path.parent / 'resume.py').write_text('owner edits')

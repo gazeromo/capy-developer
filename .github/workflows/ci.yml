@@ -26,9 +26,12 @@ jobs:
           git config --global user.email "capy-developer-ci@localhost"
       - name: Install exact repository package
         run: python -m pip install . --no-deps
+      - name: Install pinned qualification runner
+        run: python -m pip install pytest==8.4.2
       - name: Launch installed command
         run: capy-dev doctor --json
       - name: Run source qualification
         env:
           PYTHONWARNINGS: error::ResourceWarning
-        run: python -m unittest discover -s tests -v
+          PYTHONPATH: src
+        run: python -m pytest -q

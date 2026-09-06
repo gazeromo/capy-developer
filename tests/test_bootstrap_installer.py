@@ -105,6 +105,7 @@ def test_live_lease_blocks_but_crashed_owner_does_not(tmp_path):
             with lease(path):pass
     finally:
         child.kill();child.wait(timeout=5)
+        child.stdout.close()
     with lease(path):pass
     assert path.exists()
 
