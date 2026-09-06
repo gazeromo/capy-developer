@@ -110,10 +110,18 @@ def test_live_lease_blocks_but_crashed_owner_does_not(tmp_path):
     assert path.exists()
 
 
-def test_exact_historical_environment_reused_without_new_allocation(tmp_path):
+def test_historical_environment_requires_safe_interpreter_and_private_packages(tmp_path):
+    import os
     m,raw=wheel();python,_=Installer(tmp_path/'original').provision(m,raw)
     new=Installer(tmp_path/'must-not-exist')
-    assert new.reuse_historical(m,raw,{'python':str(python)})==python
+    info=python.resolve().stat()
+    if os.name!='nt' and (info.st_uid not in (0,os.getuid()) or info.st_mode & 0o022):
+        # Some CI toolcache interpreters are shared/group-writable. They are not
+        # qualifying historical runtimes; preserve the fail-closed result.
+        with pytest.raises(ManifestError,match='interpreter is not safely owned'):
+            new.reuse_historical(m,raw,{'python':str(python)})
+    else:
+        assert new.reuse_historical(m,raw,{'python':str(python)})==python
     assert not new.root.exists()
     config=python.parents[1]/'pyvenv.cfg'
     config.write_text(config.read_text().replace('include-system-site-packages = false','include-system-site-packages = true'))
