@@ -55,7 +55,7 @@ class DeveloperCore:
         return {
             "schema": "capy.developer-doctor/v0",
             "ok": True,
-            "version": "0.4.0",
+            "version": "0.5.0",
             "database_schema": SCHEMA_VERSION,
             "git": git_version,
             "roots": {
@@ -481,6 +481,17 @@ class DeveloperCore:
                 "Verification does not publish or deploy the application. Do not read or modify Capy runtime "
                 "source or production data.\n", encoding="utf-8",
             )
+            (seed / "AGENTS.md").write_text("Read CAPY.md before working in this prepared application.\n", encoding="utf-8")
+            with (seed / ".gitignore").open("a", encoding="utf-8") as ignored:
+                ignored.write("\n.capy-local/\n")
+            with (seed / "CAPY.md").open("a", encoding="utf-8") as instructions:
+                instructions.write(
+                    "\nIf .capy-local/handoff.json exists, read its nonsecret handoff_id and call "
+                    "capy_development_attach before editing. The session is already prepared; "
+                    "do not call development_start to recreate it. Implement only the owner's "
+                    "actual request. After committing and passing development_verify, call "
+                    "capy_release_candidate_create, then finish the session. A candidate is "
+                    "not independently accepted, installed, previewed or deployed.\n")
             run_git(["init", "--initial-branch=main"], cwd=seed)
             run_git(["config", "user.name", "Capy Developer"], cwd=seed)
             run_git(["config", "user.email", "capy-developer@localhost"], cwd=seed)
@@ -526,6 +537,14 @@ class DeveloperCore:
             self.db.event(db, session_id, "REPOSITORY_SYNCHRONIZED", {"base_commit": base})
             self.db.event(db, session_id, "WORKTREE_CREATED", {"branch": branch, "path_uri": path_uri(worktree)})
             self.db.event(db, session_id, "SESSION_READY", {})
+
+    def continue_development(self, payload: dict) -> dict:
+        from .continuation import continue_development
+        return continue_development(self, payload)
+
+    def attach_development(self, handoff_id: str) -> dict:
+        from .desktop import Companion
+        return Companion(self).attach(handoff_id)
 
     def inspect_development(self, session_id: str) -> dict:
         return self._session_result(session_id, revalidate=True)

@@ -15,5 +15,7 @@ session layer.
   detached candidate and preserve canonical bytes by digest.
 - Keep verification and release-candidate V0 results byte/shape compatible;
   dispatch V1 only from an explicit interaction-aware lock.
-- Do not launch a coding agent, accept a release, publish, or deploy software.
+- User-initiated local opening of an interactive coding harness through a
+  replaceable adapter is permitted for Web Handoff V0. Never supervise an
+  autonomous coding agent, accept a release, publish, or deploy software.
 - Tests must override all data, cache, repository, and worktree roots.

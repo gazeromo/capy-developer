@@ -50,6 +50,11 @@ def parser() -> argparse.ArgumentParser:
     start = development.add_parser("start")
     start.add_argument("--input")
     start.add_argument("--input-json")
+    attach = development.add_parser("attach")
+    attach.add_argument("--handoff-id", required=True)
+    continuation = development.add_parser("continue")
+    continuation.add_argument("--input")
+    continuation.add_argument("--input-json")
     inspect = development.add_parser("inspect")
     inspect.add_argument("--session-id", required=True)
     verify = development.add_parser("verify")
@@ -85,6 +90,10 @@ def run(arguments: list[str] | None = None) -> dict | None:
         return core.import_project(args.path)
     if args.command == "projects" and args.projects_command == "search":
         return core.search_projects(args.query, args.limit)
+    if args.command == "development" and args.development_command == "attach":
+        return core.attach_development(args.handoff_id)
+    if args.command == "development" and args.development_command == "continue":
+        return core.continue_development(_read_input(args.input, args.input_json))
     if args.command == "development" and args.development_command == "start":
         return core.start_development(_read_input(args.input, args.input_json))
     if args.command == "development" and args.development_command == "inspect":
@@ -106,6 +115,10 @@ def run(arguments: list[str] | None = None) -> dict | None:
 
 
 def main(arguments: list[str] | None = None) -> int:
+    raw = list(sys.argv[1:] if arguments is None else arguments)
+    if raw and raw[0] in {"setup", "handoff"}:
+        from .desktop_cli import run as desktop_run
+        return desktop_run(raw)
     try:
         result = run(arguments)
         if result is not None:

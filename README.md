@@ -34,8 +34,9 @@ cross-contract validation of root `interaction.json`, preserves its canonical
 bytes, and returns the path-free V1 interaction identity. Legacy and V0 locks
 retain their exact nine-stage behavior and are never silently upgraded;
 it does not accept, publish, install, or deploy the candidate. Capy runtime
-source, production deployment, and coding-agent launch are outside this
-repository.
+source and production deployment are outside this repository. User-initiated
+local interactive-harness opening is provided by a replaceable desktop adapter;
+autonomous coding-agent supervision is excluded.
 
 A passed verification can be converted into one deterministic, self-contained
 `.capyrc` handoff object using only its verification ID. Interaction-aware V1

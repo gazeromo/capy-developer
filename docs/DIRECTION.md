@@ -7,7 +7,7 @@ session bound to one project, one exact Git base, one generated branch, one
 isolated worktree, and one truthful DevKit lock state.
 
 The service remains local and harness-neutral. Its interfaces are a versioned JSON CLI and
-seven MCP stdio tools backed by the same core. Native Git remains source
+nine MCP stdio tools backed by the same core. Native Git remains source
 authority; SQLite is only a durable catalog and session journal.
 
 Exact committed portable-application verification is owned here through one
@@ -27,3 +27,8 @@ receipt, and recorded DevKit authoring bundle. The candidate is evidence for a
 later independent acceptor; it has no acceptance or activation authority.
 V1 adds the exact unaccepted interaction contract without implying semantic
 business acceptance, runtime compatibility, installation, or publication.
+
+Web Handoff V0 permits only user-initiated opening of a prepared local workspace
+in an interactive harness via a replaceable adapter. The paired website receives
+bounded local development facts. Exact candidate continuation preserves source
+and terminal history; neither attachment nor status grants runtime authority.

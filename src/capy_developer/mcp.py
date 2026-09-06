@@ -9,6 +9,12 @@ from .errors import DeveloperError
 
 
 TOOLS = [
+    {"name": "capy_development_attach", "description": "Attach to the exact locally prepared handoff; does not create another project.",
+     "inputSchema": {"type": "object", "required": ["handoff_id"], "additionalProperties": False,
+                     "properties": {"handoff_id": {"type": "string", "pattern": "^hof_[0-9a-f]{32}$"}}}},
+    {"name": "capy_development_continue", "description": "Continue a completed candidate in the same project at its exact source. Preserves terminal history and refuses unverified newer changes.",
+     "inputSchema": {"type": "object", "required": ["release_candidate_id", "request", "idempotency_key"], "additionalProperties": False,
+                     "properties": {"release_candidate_id": {"type": "string"}, "request": {"type": "string"}, "idempotency_key": {"type": "string"}}}},
     {
         "name": "capy_projects_search",
         "description": "Search the configured Capy project catalog without changing any project.",
@@ -103,6 +109,12 @@ TOOLS = [
 
 
 def _call(core: DeveloperCore, name: str, arguments: dict) -> dict:
+    if name == "capy_development_attach":
+        if set(arguments) != {"handoff_id"}:
+            raise DeveloperError("ATTACH_INPUT_INVALID", "attach requires only handoff_id")
+        return core.attach_development(arguments["handoff_id"])
+    if name == "capy_development_continue":
+        return core.continue_development(arguments)
     if name == "capy_projects_search":
         return core.search_projects(arguments.get("query", ""), arguments.get("limit", 10))
     if name == "capy_development_start":
@@ -139,7 +151,7 @@ def handle(core: DeveloperCore, message: dict) -> dict | None:
         return _response(request_id, {
             "protocolVersion": "2025-06-18",
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "capy-developer", "version": "0.4.0"},
+            "serverInfo": {"name": "capy-developer", "version": "0.5.0"},
         })
     if method == "ping":
         return _response(request_id, {})
