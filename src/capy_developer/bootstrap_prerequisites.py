@@ -13,12 +13,14 @@ def posix_script(manifest,manifest_sha256,platform):
     if len(manifest_sha256)!=64 or any(c not in '0123456789abcdef' for c in manifest_sha256):raise ValueError('invalid manifest digest')
     q=shlex.quote;m=manifest;pin=m['prerequisites']['uv'][platform]
     base='"$HOME/Library/Application Support/Capy/Prerequisites"' if platform.startswith('macos') else '"${XDG_DATA_HOME:-$HOME/.local/share}/capy/prerequisites"'
-    lines=['#!/bin/sh','set -eu','umask 077',
+    lines=['#!/bin/sh','set -eu','umask 077','LC_ALL=C; TZ=UTC; export LC_ALL TZ',
       '# Only for a client without compatible Python. Keep native approvals enabled.',
       'client=${1:-muse}','case "$client" in muse|codex) ;; *) exit 2 ;; esac',
       'command -v git >/dev/null || { echo "Native Git prerequisite missing" >&2; exit 1; }',
-      'if command -v python3 >/dev/null 2>&1 && python3 -I -c "import sys;raise SystemExit(sys.version_info < (3,11))"; then',
-      '  echo "Compatible Python is already available; use the ordinary verified installer instructions."','  exit 0','fi',
+      'for existing_python in python3 python3.14 python3.13 python3.12 python3.11 python; do',
+      'if command -v "$existing_python" >/dev/null 2>&1 && "$existing_python" -I -c "import sys;raise SystemExit(sys.version_info < (3,11))"; then',
+      '  echo "Compatible Python is already available; use the ordinary verified installer instructions."','  exit 0','fi','done',
+      '[ "$(uname -s):$(uname -m)" = '+q(('Darwin:' if platform.startswith('macos') else 'Linux:')+('arm64' if platform=='macos-arm64' else 'aarch64' if platform=='linux-arm64' else 'x86_64'))+' ] || { echo "This bootstrap script targets another platform" >&2; exit 1; }',
       'command -v curl >/dev/null','command -v tar >/dev/null',
       'if command -v shasum >/dev/null; then hash_file() { shasum -a 256 "$1" | cut -d " " -f 1; }; else hash_file() { sha256sum "$1" | cut -d " " -f 1; }; fi',
       'task_base='+base,'task_root="$task_base/'+manifest_sha256+'"',
@@ -48,9 +50,20 @@ def posix_script(manifest,manifest_sha256,platform):
       '[ "$(hash_file '+uvpath+')" = "$expected_uv" ] || { echo "Changed uv preserved" >&2; exit 1; }',
       '# Ignore uv environment overrides; all state remains under this owned directory.',
       'run_uv() { if [ -n "${SSL_CERT_FILE:-}" ]; then env -i PATH="$PATH" HOME="$HOME" SSL_CERT_FILE="$SSL_CERT_FILE" "$@"; else env -i PATH="$PATH" HOME="$HOME" "$@"; fi; }',
+      'if [ ! -f "$task_root/python.integrity" ]; then',
+      '  if [ -e "$task_root/python" ]; then retained=$(mktemp -d "$task_root/interrupted-python.XXXXXX"); mv "$task_root/python" "$retained/python"; fi',
       'run_uv '+uvpath+' --no-config --cache-dir "$task_root/cache" python install --install-dir "$task_root/python" --no-bin --no-registry --python-downloads-json-url "$task_root/'+pin['downloads']['filename']+'" '+q(m['prerequisites']['python_exact']),
     ]
     system='macos' if platform.startswith('macos') else 'linux';arch='aarch64' if platform.endswith('arm64') else 'x86_64';libc='none' if system=='macos' else 'gnu';version=m['prerequisites']['python_exact'];minor='.'.join(version.split('.')[:2])
     python='"$task_root/python/cpython-'+version+'-'+system+'-'+arch+'-'+libc+'/bin/python'+minor+'"'
-    lines += [python+' -I "$task_root/'+m['installer']['filename']+'" --manifest '+q(m['origin']+'/developer/bootstrap/'+m['release_id']+'/manifest.json')+' --manifest-sha256 '+q(manifest_sha256)+' --client "$client"','']
+    managed=python.rsplit('/bin/',1)[0]+'"'
+    hasher='shasum -a 256' if platform.startswith('macos') else 'sha256sum'
+    lines += ['  chmod -R a-w '+managed,
+      '  { find '+managed+' -type f -exec '+hasher+' {} + ; find '+managed+' -type l -exec ls -ldn {} + ; } | sort > "$task_root/python.integrity"',
+      'fi',
+      '[ ! -L "$task_root/python.integrity" ] && [ ! -L "$task_root/python" ] || exit 1',
+      'check=$(mktemp "$task_root/.integrity.XXXXXX")',
+      '{ find '+managed+' -type f -exec '+hasher+' {} + ; find '+managed+' -type l -exec ls -ldn {} + ; } | sort > "$check"',
+      'cmp -s "$check" "$task_root/python.integrity" || { echo "Managed Python changed; preserved without execution" >&2; exit 1; }',
+      python+' -B -I "$task_root/'+m['installer']['filename']+'" --manifest '+q(m['origin']+'/developer/bootstrap/'+m['release_id']+'/manifest.json')+' --manifest-sha256 '+q(manifest_sha256)+' --client "$client"','']
     return '\n'.join(lines).encode()

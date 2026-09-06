@@ -107,3 +107,23 @@ def decode(raw, expected_sha256=None):
 
 def artifact_url(manifest, item):
     return manifest['origin'] + '/developer/bootstrap/' + manifest['release_id'] + '/' + item['filename']
+
+
+def validate_downloads(manifest, pin, raw):
+    """Bind uv's inert download table to the same exact mirrored Python artifact."""
+    require(type(raw) is bytes and len(raw)<=MAX_MANIFEST, 'Python metadata exceeds bound')
+    try:
+        data=json.loads(raw)
+        require(type(data) is dict and set(data)=={pin['python_key']}, 'unexpected Python downloads')
+        record=data[pin['python_key']]
+        closed(record,'name arch os libc major minor patch prerelease url sha256 variant build')
+        closed(record['arch'],'family variant')
+        require(record['name']=='cpython' and record['variant'] is None and record['arch']['variant'] is None and record['prerelease']=='', 'unsupported Python build variant')
+        version='.'.join(str(record[k]) for k in ('major','minor','patch'))
+        require(all(type(record[k]) is int for k in ('major','minor','patch')) and version==manifest['prerequisites']['python_exact'], 'Python metadata version mismatch')
+        require(pin['python_key']=='cpython-'+version+'-'+record['os']+'-'+record['arch']['family']+'-'+record['libc'], 'Python metadata platform mismatch')
+        token(record['build'],r'[0-9]{8}')
+        require(record['url']==artifact_url(manifest,pin['python_artifact']) and record['sha256']==pin['python_artifact']['sha256'], 'Python download must match the mirrored artifact')
+        return data
+    except (UnicodeError,json.JSONDecodeError,TypeError,KeyError):
+        raise ManifestError('invalid Python download metadata') from None
