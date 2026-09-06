@@ -55,7 +55,7 @@ class DeveloperCore:
         return {
             "schema": "capy.developer-doctor/v0",
             "ok": True,
-            "version": "0.5.0",
+            "version": "0.6.0",
             "database_schema": SCHEMA_VERSION,
             "git": git_version,
             "roots": {

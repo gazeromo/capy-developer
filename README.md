@@ -48,3 +48,27 @@ bind, or deploy it.
 
 See [docs/DIRECTION.md](docs/DIRECTION.md) and the frozen interaction-contract
 campaign plan in `campaigns/developer_interaction_contract_v0/PLAN.md`.
+
+### Selected candidate transfer (0.6.0)
+
+A paired site's **Send this version** action opens the existing native handler
+for a separate candidate-submission URI. The companion checks the site's transfer
+capability, exact local handoff and immutable V1 candidate, then displays a local
+source-disclosure confirmation. It sends only the selected `.capyrc` bytes to the
+fixed paired HTTPS endpoint. It does not launch Codex or run verification.
+
+Transfer history is separate from completed development sessions:
+
+```sh
+capy-dev handoff transfers --json
+```
+
+An interrupted transfer can be retried through the same site action. Exact retries
+reuse confirmed selection and custody acknowledgment; changed generations require
+new local confirmation. Old servers report `TRANSFER_UPGRADE_REQUIRED`. The native
+handler's existing `handoff open` entrypoint supports both closed URI grammars;
+upgrading the package in the same Python installation needs no handler replacement.
+Changing the Python installation still requires ownership-checked desktop setup.
+Local confirmation/native transfer is qualified for macOS; other platforms fail
+closed when that confirmation is unavailable. Source transfer does not accept or
+install an application. Existing Developer Link V0 message shapes are unchanged.

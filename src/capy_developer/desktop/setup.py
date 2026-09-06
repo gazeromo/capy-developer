@@ -158,7 +158,7 @@ class Setup:
                 after = before + (b'\n' if before and not before.endswith(b'\n') else b'') + block
             tomllib.loads(after.decode())
             if receipt is None:
-                receipt = {'schema': 'capy.desktop-setup/v0', 'status': 'PREPARING', 'version': '0.5.0',
+                receipt = {'schema': 'capy.desktop-setup/v0', 'status': 'PREPARING', 'version': '0.6.0',
                            'python': str(Path(sys.executable).absolute()), 'config_path': str(self.config_path),
                            'mcp_block': block.decode(), 'before_sha256': sha(before), 'after_sha256': sha(after),
                            'handler': None, 'modified_paths': [str(self.config_path)]}
@@ -309,7 +309,7 @@ application.run()
                 subprocess.run(['swiftc', str(source), '-o', str(build / 'Contents/MacOS/capy-developer-handler')], check=True, timeout=120, capture_output=True)
                 (build / 'Contents/Info.plist').write_bytes(plistlib.dumps({
                     'CFBundleIdentifier': 'local.capy.developer.handoff', 'CFBundleName': 'Capy Developer',
-                    'CFBundleVersion': '0.5.0', 'CFBundleExecutable': 'capy-developer-handler', 'CFBundlePackageType': 'APPL',
+                    'CFBundleVersion': '0.6.0', 'CFBundleExecutable': 'capy-developer-handler', 'CFBundlePackageType': 'APPL',
                     'LSUIElement': True, 'CFBundleURLTypes': [{'CFBundleURLName': 'Capy Developer handoff', 'CFBundleURLSchemes': ['capy-dev']}],
                 }))
                 receipt['handler'] = {'path': str(app), 'files': {str(p.relative_to(build)): sha(p.read_bytes()) for p in build.rglob('*') if p.is_file()}}

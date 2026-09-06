@@ -41,6 +41,8 @@ def parser():
         item = handoff.add_parser(name)
         item.add_argument('--handoff-id', required=True)
         item.add_argument('--json', action='store_true')
+    history = handoff.add_parser('transfers')
+    history.add_argument('--json', action='store_true')
     sync = handoff.add_parser('sync')
     sync.add_argument('--handoff-id')
     sync.add_argument('--once', action='store_true')
@@ -89,7 +91,8 @@ def run(raw_args) -> int:
     try:
         args = parser().parse_args(raw_args)
         if args.command == 'handoff' and args.action == 'open':
-            parsed = parse_uri(args.uri)
+            from .submission_protocol import parse_uri as parse_submission_uri
+            parsed = parse_submission_uri(args.uri) if args.uri.startswith('capy-dev://submission/') else parse_uri(args.uri)
             preflight_open(Config.from_environment().data_root, parsed['site_id'])
         core = DeveloperCore()
         companion = Companion(core)
@@ -123,10 +126,17 @@ def run(raw_args) -> int:
                             break
         elif args.action == 'open':
             try:
-                result = companion.open_uri(args.uri)
+                if args.uri.startswith('capy-dev://submission/'):
+                    from .desktop.submissions import Submissions
+                    result = Submissions(companion).send(args.uri)
+                else:
+                    result = companion.open_uri(args.uri)
             finally:
                 if companion.prepared_for_launch:
                     start_sync()
+        elif args.action == 'transfers':
+            from .desktop.submissions import Submissions
+            result = {'ok': True, 'transfers': Submissions(companion).history()}
         elif args.action == 'inspect':
             result = companion.inspect(args.handoff_id)
         elif args.action == 'attach':
