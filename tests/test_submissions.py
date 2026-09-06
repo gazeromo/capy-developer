@@ -3,6 +3,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -29,6 +30,7 @@ CAND='rc_'+'8'*32
 URI=f'capy-dev://submission/{SUB}?site={SITE}&send=1'
 NOW=1800000000
 
+@unittest.skipUnless(os.name == 'posix', 'Protected file transfer is POSIX-only; protocol tests remain portable')
 class TransferTests(unittest.TestCase):
  def setUp(self):
   self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);root=Path(self.temp.name).resolve()
