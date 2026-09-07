@@ -31,6 +31,8 @@ class ClientSetup:
         guide = (Path(__file__).parent / 'data/capy-development.md').read_bytes()
         guide += ('\nLocal entrypoint (argument array; preserve spaces):\n\n```json\n' +
                   json.dumps([sys.executable, str(entry)]) + '\n```\n').encode()
+        guide += ('\nLocal request directory (absolute path, local data only):\n\n```json\n' +
+                  json.dumps(str(self.root / 'requests')) + '\n```\n').encode()
         return {entry:shim, entry.parent / 'SKILL.md':guide}
 
     def install(self, adapter):

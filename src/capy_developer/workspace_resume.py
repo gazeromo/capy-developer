@@ -36,7 +36,7 @@ def prepare(config, handoff_id, adapter):
             'WORK_INPUT_INVALID', 'provide an exact linked handoff')
     require(adapter in ('muse', 'codex'), 'CLIENT_UNSUPPORTED', 'unsupported coding client')
     if platform.system() != 'Darwin':
-        return {'supported': False, 'reason': 'Explicit native reopen is currently qualified on macOS only.'}
+        return {'supported': False, 'reason': 'Explicit native reopen is currently supported on macOS only.'}
     directory = config.data_root / 'workspace-resume' / handoff_id
     for path in (directory, *directory.parents):
         require(not path.is_symlink(), 'WORK_RESUME_CONFLICT', 'resume paths cannot pass through symlinks')

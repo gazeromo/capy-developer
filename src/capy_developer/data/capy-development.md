@@ -4,14 +4,21 @@ description: Create or continue a Capy app through the connected local Developer
 ---
 
 Resolve website-linked work through Capy before creating application files.
-Use the installed local entrypoint recorded below; its helper preserves the shared
-catalog and roots. Inspect `client list` and `work list` to recover saved clients
+Use the native Capy MCP tools when available, and check the actual client channel
+with `capy_client_check` before beginning work. The installed local entrypoint
+recorded below is the CLI route; it preserves the shared catalog and roots, but
+a helper invocation cannot substitute for a native MCP channel check.
+Inspect client and work lists to recover saved clients
 and work without relying on an earlier conversation. Multiple plausible sites or
 projects require a clear selection; never guess from the current directory.
 
 For a new app, call `work begin` with a local JSON object containing `client_id`,
 a new 32-character hexadecimal `intent_id`, the user's `request`, and `new`
 with `name` and `application_id`. Persist and reuse that input for retries.
+Save objective and request files only in the local request directory recorded
+below, creating it if needed. Never put setup, configuration, objective, request,
+or application files in an unrelated starting directory. Do not move existing
+user configuration to satisfy this rule.
 For a completed linked candidate, use `parent_handoff_id` instead of `new`.
 Native MCP exposes the same operation as `capy_work_begin`.
 For a separate session in a registered project, search the catalog and resolve
