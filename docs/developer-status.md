@@ -50,3 +50,19 @@ consent still required. Expired or replaced connections require restoration.
 These are local continuation instructions, not proof of site acceptance,
 publication or installation. V0 responses and immutable V1 candidate bytes are
 unchanged.
+
+## Discover managed connection input and result contracts
+
+Call `capy_connection_contracts` with the exact configured `client_id` and an
+optional `contract` identifier. The authenticated Capy site returns its finite
+supported contract metadata, including required request fields, result shape and
+synthetic examples. Developer contains no provider-specific schema or routing.
+The transport uses one fixed authenticated harness route; contract identifiers
+cannot select a path or remote URL. Responses are size/depth bounded and reject
+external schema references, unexpected top-level fields, URLs and credential
+references.
+
+`credential: managed_by_capy` and `binding: team_configuration` describe the
+boundary. `availability: not_checked` is not evidence that a grant exists or
+that a provider is usable. Use the returned exact schemas, collect required
+inputs and retain normal human configuration, source consent and acceptance.

@@ -183,6 +183,13 @@ class HarnessClient:
         challenge = json.loads(row['challenge'])
         return self._post(row['site'], 'check', {'client_id':client_id, 'nonce':challenge['nonce']})
 
+    def connection_contracts(self, arguments):
+        from .connection_discovery import validate_request, validate_response
+        validate_request(arguments)
+        row = self._client(arguments['client_id'])
+        value = self._post(row['site'], 'connection-contracts', arguments)
+        return validate_response(value, arguments.get('contract'))
+
     def status(self, client_id):
         row = self._client(client_id)
         return self._post(row['site'], 'status', {})

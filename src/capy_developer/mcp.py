@@ -9,6 +9,10 @@ from .errors import DeveloperError
 
 
 TOOLS = [
+    {"name": "capy_connection_contracts", "description": "Discover finite supported managed connection contracts through the configured Capy site. Returns exact request/result schemas and synthetic examples; provider credentials stay managed by Capy. Connection availability is not checked. Use this before authoring a connected app; collect required inputs rather than inventing values.",
+     "inputSchema": {"type": "object", "required": ["client_id"], "additionalProperties": False,
+                     "properties": {"client_id": {"type": "string", "pattern": "^cli_[0-9a-f]{32}$"},
+                                    "contract": {"type": "string", "maxLength": 86}}}},
     {"name": "capy_developer_status", "description": "Read safe status for this configured Developer installation, exact running build and toolset, local site/client records and optional session continuation. Does not check remote readiness or access credentials.",
      "inputSchema": {"type": "object", "additionalProperties": False, "properties": {"session_id": {"type": "string", "minLength": 1}}}},
     {"name":"capy_work_reopen", "description":"Reopen exact active linked work through its original client without creating or launching a session. Set previous_editor_stopped only after the user explicitly confirms the earlier editor has stopped; never infer it from stale presence.",
@@ -138,6 +142,9 @@ TOOLS = [
 
 
 def _call(core: DeveloperCore, name: str, arguments: dict) -> dict:
+    if name == "capy_connection_contracts":
+        from .harness_client import HarnessClient
+        return HarnessClient.diagnostics(core.config).connection_contracts(arguments)
     if name == "capy_developer_status":
         from .developer_status import status
         return status(core.config, arguments)
