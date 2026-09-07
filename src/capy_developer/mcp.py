@@ -10,6 +10,10 @@ from .errors import DeveloperError
 
 
 TOOLS = [
+    {"name": "capy_client_register_existing", "description": "Register this coding client through the already configured Developer installation and one explicitly selected approved site from capy_developer_status. Preserves roots, projects, pairing and client configuration; does not run bootstrap or create a site connection. Existing human linked-work approval and a separate capy_client_check remain required.",
+     "inputSchema": {"type": "object", "required": ["site_id", "client"], "additionalProperties": False,
+                     "properties": {"site_id": {"type": "string", "pattern": "^site_[0-9a-f]{32}$"},
+                                    "client": {"type": "string", "enum": ["codex", "muse"]}}}},
     {"name": "capy_connection_contracts", "description": "Discover finite supported managed connection contracts through the configured Capy site. Returns exact request/result schemas and synthetic examples; provider credentials stay managed by Capy. Connection availability is not checked. Use this before authoring a connected app; collect required inputs rather than inventing values.",
      "inputSchema": {"type": "object", "required": ["client_id"], "additionalProperties": False,
                      "properties": {"client_id": {"type": "string", "pattern": "^cli_[0-9a-f]{32}$"},
@@ -143,6 +147,9 @@ TOOLS = [
 
 
 def _call(core: DeveloperCore, name: str, arguments: dict) -> dict:
+    if name == "capy_client_register_existing":
+        from .harness_client import HarnessClient
+        return HarnessClient(core).register_existing(arguments)
     if name == "capy_connection_contracts":
         from .harness_client import HarnessClient
         return HarnessClient.diagnostics(core.config).connection_contracts(arguments)

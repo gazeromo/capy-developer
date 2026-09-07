@@ -21,6 +21,20 @@ def connection_info(transport, site):
     return info
 
 
+def observed_client_version(adapter):
+    import subprocess
+    from .workspace_resume import native_client
+    executable = native_client(adapter)
+    try:
+        probe = subprocess.run([executable, '--version'], capture_output=True, text=True, timeout=15, check=True)
+    except (OSError, subprocess.SubprocessError):
+        raise DeveloperError('CLIENT_PROBE_FAILED', 'the installed client version could not be inspected') from None
+    version = probe.stdout.strip()
+    require(bool(re.fullmatch(r'[A-Za-z0-9 ._()+-]{1,80}', version)),
+            'CLIENT_VERSION_INVALID', 'invalid observed coding client version')
+    return version
+
+
 class HarnessClient:
     @classmethod
     def diagnostics(cls, config, *, transport=None, credential_store=None):
@@ -119,7 +133,23 @@ class HarnessClient:
         # Existing grant, immutable-candidate and local disclosure checks stay authoritative.
         return Submissions(self.companion).send(uri)
 
-    def connect(self, site, adapter, version, transport='JSON_CLI'):
+    def register_existing(self, value):
+        """Register through this already configured installation, never rediscover it."""
+        require(isinstance(value, dict) and set(value) == {'site_id', 'client'},
+                'CLIENT_REGISTRATION_INPUT_INVALID', 'provide exactly one existing site_id and this coding client')
+        require(isinstance(value['site_id'], str) and bool(re.fullmatch(r'site_[0-9a-f]{32}', value['site_id'])),
+                'SITE_ID_INVALID', 'select an exact existing site_id from capy_developer_status')
+        require(value['client'] in ('codex', 'muse'), 'CLIENT_UNSUPPORTED', 'choose codex or muse')
+        pair = self.companion.state.pair_record(value['site_id'])
+        require(pair['state'] == 'APPROVED' and pair['expires_at'] > self.companion.clock(),
+                'SITE_NOT_PAIRED', 'restore this existing site connection through its normal approval before registering a client')
+        version = observed_client_version(value['client'])
+        result = self.connect(pair['origin'], value['client'], version, 'MCP_STDIO', existing_site_id=value['site_id'], existing_installation_id=pair['installation_id'])
+        if result['status'] == 'CONFIGURED_WAITING_FOR_TOOL_CHECK':
+            return {**result, 'next_action': {'tool': 'capy_client_check', 'arguments': {'client_id': result['client_id']}}}
+        return result
+
+    def connect(self, site, adapter, version, transport='JSON_CLI', *, existing_site_id=None, existing_installation_id=None):
         origin(site)
         require(adapter in ('muse', 'codex'), 'CLIENT_UNSUPPORTED', 'choose a supported coding client')
         require(transport in ('JSON_CLI', 'MCP_STDIO'), 'CLIENT_CHANNEL_INVALID', 'unsupported tool channel')
@@ -129,11 +159,18 @@ class HarnessClient:
         site_id = info['site_id']
         require(isinstance(site_id, str) and bool(re.fullmatch(r'site_[0-9a-f]{32}', site_id)),
                 'SITE_ID_INVALID', 'invalid site identity')
-        pairs = {p['site_id']:p for p in self.companion.connections()}
-        if site_id in pairs and pairs[site_id]['state'] in ('PENDING','STARTING') and pairs[site_id]['expires_at'] > self.companion.clock():
-            pair = self.companion.pair_poll(site_id) if pairs[site_id]['state'] == 'PENDING' else self.companion.pair_start(site, site_id)
+        if existing_site_id is not None:
+            require(site_id == existing_site_id, 'SITE_ID_MISMATCH', 'the selected existing site returned a different identity')
+            pair = self.companion._approved(site_id)
+            require(pair['origin'] == site, 'PAIR_ORIGIN_CONFLICT', 'the existing site origin changed during registration')
+            require(pair['installation_id'] == existing_installation_id, 'CLIENT_CONNECTION_REPLACED',
+                    'the selected connection changed during registration; inspect its current status before retrying')
         else:
-            pair = self.companion.pair_start(site, site_id)
+            pairs = {p['site_id']:p for p in self.companion.connections()}
+            if site_id in pairs and pairs[site_id]['state'] in ('PENDING','STARTING') and pairs[site_id]['expires_at'] > self.companion.clock():
+                pair = self.companion.pair_poll(site_id) if pairs[site_id]['state'] == 'PENDING' else self.companion.pair_start(site, site_id)
+            else:
+                pair = self.companion.pair_start(site, site_id)
         if pair.get('state', pair.get('status')) != 'APPROVED':
             return {'ok':True, 'status':'WAITING_FOR_ACCOUNT_APPROVAL', 'connection':pair, 'ready':False}
         status = self._post(site_id, 'status', {})

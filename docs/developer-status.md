@@ -66,3 +66,22 @@ references.
 boundary. `availability: not_checked` is not evidence that a grant exists or
 that a provider is usable. Use the returned exact schemas, collect required
 inputs and retain normal human configuration, source consent and acceptance.
+
+## Register a client on the already configured installation
+
+When status reports `CLIENT_REGISTRATION_REQUIRED`, call
+`capy_client_register_existing` with the intended existing `site_id` and `client`
+(`codex` or `muse`). Select the site explicitly when several are listed. This
+MCP tool already runs with the correct installation roots; it does not use global
+CLI discovery, bootstrap, or configuration-file reconstruction.
+
+The tool observes the installed coding client version and reuses the existing
+approved pairing and registration protocol. It cannot create or replace a site
+connection, install packages, change client configuration, or bypass human
+linked-work approval. If scope approval is missing, open the returned approval
+URL and retry after the user approves. Otherwise call the returned exact
+`capy_client_check` action in this MCP channel. A configuration response alone is
+not a successful tool check.
+
+Generic bootstrap and bare CLI discovery continue to reject competing catalogs.
+Their conflict is not a reason to move or merge the configured installation.

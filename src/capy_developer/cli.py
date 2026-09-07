@@ -145,15 +145,8 @@ def run(arguments: list[str] | None = None) -> dict | None:
         if args.command == "connect":
             from .desktop.transport import Transport
             connection_info(Transport(), args.site)
-            from .workspace_resume import native_client
-            executable = native_client(args.client)
-            try:
-                probe = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=15, check=True)
-            except (OSError, subprocess.SubprocessError):
-                raise DeveloperError("CLIENT_PROBE_FAILED", "the installed client version could not be inspected") from None
-            version = probe.stdout.strip()
-            if not re.fullmatch(r'[A-Za-z0-9 ._()+-]{1,80}', version):
-                raise DeveloperError("CLIENT_VERSION_INVALID", "invalid observed coding client version")
+            from .harness_client import observed_client_version
+            version = observed_client_version(args.client)
         muse = None
         muse_mcp = None
         if (args.command == 'connect' and args.client == 'muse') or (args.command == 'client' and args.client_command == 'remove'):

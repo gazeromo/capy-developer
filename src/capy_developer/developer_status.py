@@ -66,9 +66,12 @@ def status(config, arguments=None):
         result['next_action'] = 'Multiple active site connections are recorded. Select an existing site and its exact client_id before starting linked work; do not guess or allocate another installation.'
     else:
         result['installation']['connection_status'] = 'NO_ACTIVE_LOCAL_APPROVAL'
-    if not clients and result['sites']:
+    active_sites = [row for row in pairs if row['state'] == 'APPROVED' and row['expires_at'] > time.time()]
+    if not clients and active_sites:
         result['installation']['connection_status'] = 'CLIENT_REGISTRATION_REQUIRED'
-        result['next_action'] = 'Register this coding client through the managed setup guide for its existing site; retain the current installation and pairing.'
+        result['next_action'] = 'Call capy_client_register_existing with the intended existing site_id and client (codex or muse), then complete its returned approval or capy_client_check action. This tool already knows the configured installation; do not run bootstrap or reconstruct its environment.'
+        result['client_registration'] = {'tool': 'capy_client_register_existing', 'required_arguments': ['site_id', 'client'],
+                                         'site_ids': [row['site_id'] for row in active_sites], 'clients': ['codex', 'muse']}
         result['client_setup_guides'] = [row['origin'] + '/developer/connect.md' for row in pairs if row['state'] == 'APPROVED' and row['expires_at'] > time.time()]
     if 'session_id' in arguments:
         result['session']['handoff_ids'] = [row['handoff_id'] for row in handoffs]
