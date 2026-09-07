@@ -1,0 +1,43 @@
+{
+  "schema": "capy.application-interaction/dev-v0",
+  "application_id": "test.connected_read",
+  "title": "Connected read",
+  "purpose": "Read one synthetic message through a semantic connection.",
+  "not_for": [
+    "sending messages or changing external state"
+  ],
+  "operation": {
+    "operation_id": "lookup.read",
+    "title": "Read message",
+    "user_outcome": "Get one synthetic message.",
+    "description": "Read one message through the declared lookup connection.",
+    "request_fields": [],
+    "resource_fields": [],
+    "examples": [
+      "Read the synthetic message."
+    ],
+    "common_misunderstandings": [
+      "This application does not send the greeting to anyone."
+    ],
+    "result": {
+      "presentation": "facts",
+      "facts": [
+        {
+          "path": "message",
+          "label": "Greeting"
+        }
+      ],
+      "artifacts": []
+    }
+  },
+  "boundaries": [
+    {
+      "boundary_id": "hello.send",
+      "request_class": "sending or publishing the greeting",
+      "explanation": "This application returns a greeting but does not send or mutate anything.",
+      "nearest_operation_ids": [
+        "lookup.read"
+      ]
+    }
+  ]
+}

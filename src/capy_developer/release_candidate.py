@@ -17,8 +17,7 @@ from pathlib import Path, PurePosixPath
 from .errors import DeveloperError
 from .git import run_git
 from .toolchain import (
-    ACCEPTED_BUNDLE_SHA256, ACCEPTED_DEVKIT_MAIN, ACCEPTED_SOURCE_COMMIT,
-    ACCEPTED_WHEEL_SHA256, sha256_file,
+    TRUSTED_RELEASES, sha256_file,
 )
 from .util import (
     APPLICATION_ID,
@@ -687,8 +686,23 @@ def _validate_interaction_descriptor(descriptor: object, member_names: set[str])
         names.add(name)
         if type(item["required"]) is not bool or type(item["min_items"]) is not int or type(item["max_items"]) is not int or item["min_items"] < 0 or item["max_items"] < item["min_items"] or item["max_items"] > 100 or (item["required"] and item["min_items"] < 1):
             raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor resource count is invalid")
-    if descriptor["connections"] != []:
-        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor connections are unsupported")
+    connections = descriptor["connections"]
+    if not isinstance(connections, list):
+        raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction descriptor connections are invalid")
+    names = set()
+    for item in connections:
+        if not isinstance(item, dict) or set(item) != {"name", "contract", "operations", "required"}:
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction connection declaration is invalid")
+        name, contract, operations = item["name"], item["contract"], item["operations"]
+        if (
+            not isinstance(name, str) or re.fullmatch(r"[a-z][a-z0-9_]*", name) is None or name in names
+            or not isinstance(contract, str) or re.fullmatch(r"[a-z][a-z0-9_.-]*/v[0-9]+", contract) is None
+            or not isinstance(operations, list) or not operations
+            or any(not isinstance(op, str) or re.fullmatch(r"[a-z][a-z0-9_]*", op) is None for op in operations)
+            or len(set(operations)) != len(operations) or type(item["required"]) is not bool
+        ):
+            raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction connection declaration is invalid")
+        names.add(name)
     _check_interaction_schema(descriptor["input_schema"])
     _check_interaction_schema(descriptor["result_schema"])
     return descriptor
@@ -963,15 +977,16 @@ def _validate_v1_bundle_bytes(payload: bytes) -> dict:
         raise DeveloperError("RELEASE_CANDIDATE_INTEGRITY_FAILED", "interaction source binding is invalid")
     toolchain = inspect_authoring_bundle(members[MEMBERS_V1[4]])
     toolchain_manifest = toolchain["manifest"]
+    trusted = TRUSTED_RELEASES.get(manifest["toolchain"].get("release_binding_commit"))
     if (
-        digest_bytes(members[MEMBERS_V1[4]]) != ACCEPTED_BUNDLE_SHA256
-        or toolchain["wheel_sha256"] != ACCEPTED_WHEEL_SHA256
+        trusted is None or trusted["interaction_contract"] != interaction_binding["schema"]
+        or digest_bytes(members[MEMBERS_V1[4]]) != trusted["bundle_sha256"]
+        or toolchain["wheel_sha256"] != trusted["wheel_sha256"]
         or toolchain_manifest.get("schema") != "capy.devkit-authoring-bundle/v1"
         or toolchain_manifest.get("interaction_contract") != interaction_binding["schema"]
-        or toolchain_manifest.get("source_commit") != ACCEPTED_SOURCE_COMMIT
-        or manifest["toolchain"].get("release_binding_commit") != ACCEPTED_DEVKIT_MAIN
-        or manifest["toolchain"].get("implementation_commit") != ACCEPTED_SOURCE_COMMIT
-        or manifest["toolchain"].get("wheel_sha256") != ACCEPTED_WHEEL_SHA256
+        or toolchain_manifest.get("source_commit") != trusted["source_commit"]
+        or manifest["toolchain"].get("implementation_commit") != trusted["source_commit"]
+        or manifest["toolchain"].get("wheel_sha256") != trusted["wheel_sha256"]
         or manifest["toolchain"].get("wheel_filename") != toolchain["wheel_filename"]
         or manifest["toolchain"].get("interaction_contract") != interaction_binding["schema"]
     ):

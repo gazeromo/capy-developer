@@ -13,10 +13,16 @@ from .errors import DeveloperError
 from .util import HEX40, HEX64, stable_digest
 
 
-ACCEPTED_DEVKIT_MAIN = "24b6418c0ee2dada5a08f78ff6752bb43f9d8e16"
-ACCEPTED_BUNDLE_SHA256 = "12e492ec2dce11b4227d10bdf9385705a60bc12a88fec0073ff48a87b2a57a57"
-ACCEPTED_WHEEL_SHA256 = "56c9f6c930b21d600a2e8f10da7a3e92f5cfbf1c6d91490d170d1790e5555603"
-ACCEPTED_SOURCE_COMMIT = "1211861edbb512aaefae8c20b207f590fac34c35"
+ACCEPTED_DEVKIT_MAIN = "b8d1fb45a4b406d9359575630492142f94200f11"
+ACCEPTED_BUNDLE_SHA256 = "0a79a0d0a6bed13b52397d3795074cff85ad17237e23e03e24a3c8a9c5b09786"
+ACCEPTED_WHEEL_SHA256 = "65033f455a0ecd0aafec56b204c814d19b67d4d0b2794151c936a1cc4eca1e95"
+ACCEPTED_SOURCE_COMMIT = "ceddb0b12f2bd4f46ccce055b7672b4088e00a57"
+
+# Prior V1 apps retain their exact immutable authoring release.
+PREVIOUS_INTERACTION_DEVKIT = "24b6418c0ee2dada5a08f78ff6752bb43f9d8e16"
+PREVIOUS_INTERACTION_BUNDLE = "12e492ec2dce11b4227d10bdf9385705a60bc12a88fec0073ff48a87b2a57a57"
+PREVIOUS_INTERACTION_WHEEL = "56c9f6c930b21d600a2e8f10da7a3e92f5cfbf1c6d91490d170d1790e5555603"
+PREVIOUS_INTERACTION_SOURCE = "1211861edbb512aaefae8c20b207f590fac34c35"
 ACCEPTED_REPOSITORY = "gazeromo/capy-script-devkit"
 
 PREVIOUS_DEVKIT_MAIN = "8c4fec7f814a62ded441786b8eba28af14d1aa2d"
@@ -30,13 +36,22 @@ HISTORICAL_WHEEL_SHA256 = "165faba51b56b667b087228e1c556b1e2369d0e61bb469785ddff
 HISTORICAL_SOURCE_COMMIT = "55fc109b5f494086c03560794e7be74d75f1d93f"
 
 BUNDLED_RELEASES = {
-    ACCEPTED_BUNDLE_SHA256: "interaction-authoring-bundle-12e492ec.zip",
+    ACCEPTED_BUNDLE_SHA256: "connected-authoring-bundle-0a79a0d0.zip",
+    PREVIOUS_INTERACTION_BUNDLE: "interaction-authoring-bundle-12e492ec.zip",
     PREVIOUS_BUNDLE_SHA256: "accepted-authoring-bundle.zip",
     HISTORICAL_BUNDLE_SHA256: "historical-authoring-bundle-cb7e4073.zip",
 }
 
 
 TRUSTED_RELEASES = {
+    PREVIOUS_INTERACTION_DEVKIT: {
+        "repository": ACCEPTED_REPOSITORY,
+        "bundle_sha256": PREVIOUS_INTERACTION_BUNDLE,
+        "wheel_sha256": PREVIOUS_INTERACTION_WHEEL,
+        "source_commit": PREVIOUS_INTERACTION_SOURCE,
+        "interaction_contract": "capy.application-interaction/dev-v0",
+        "bundle_schema": "capy.devkit-authoring-bundle/v1",
+    },
     ACCEPTED_DEVKIT_MAIN: {
         "repository": ACCEPTED_REPOSITORY,
         "bundle_sha256": ACCEPTED_BUNDLE_SHA256,
@@ -413,7 +428,7 @@ class ToolchainCache:
 def current_lock(source_path: str | None = "capy.lock") -> ToolchainLock:
     return ToolchainLock(
         "capy.toolchain-lock/v1", "capy.script/dev-v0", "gazeromo/capy-script-devkit",
-        ACCEPTED_DEVKIT_MAIN, "capy_script_devkit-0.1.0-py3-none-any.whl",
+        ACCEPTED_DEVKIT_MAIN, "capy_script_devkit-0.2.0-py3-none-any.whl",
         ACCEPTED_WHEEL_SHA256, ACCEPTED_BUNDLE_SHA256,
         "capy.application-interaction/dev-v0", source_path, "VALID",
     )

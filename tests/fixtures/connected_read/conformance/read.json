@@ -1,0 +1,22 @@
+{
+  "schema": "capy.script-fixture/dev-v0",
+  "request": {},
+  "resources": [],
+  "connections": {
+    "lookup": {
+      "read": {
+        "status": "ok",
+        "result": {
+          "message": "synthetic read"
+        }
+      }
+    }
+  },
+  "expect": {
+    "status": "ok",
+    "result": {
+      "message": "synthetic read"
+    },
+    "artifacts": []
+  }
+}

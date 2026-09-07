@@ -1,0 +1,24 @@
+schema = "capy.script/dev-v0"
+id = "test.connected_read"
+name = "Connected read"
+description = "Read one synthetic message through a semantic connection."
+entrypoint = "main.py"
+side_effect = "read_only"
+timeout_seconds = 15
+memory_mb = 128
+state_required = false
+resources = []
+connections = [{name = "lookup", contract = "test.lookup/v1", operations = ["read"], required = true}]
+
+[input_schema]
+type = "object"
+additionalProperties = false
+
+[result_schema]
+type = "object"
+required = ["message"]
+additionalProperties = false
+
+[result_schema.properties.message]
+type = "string"
+
