@@ -104,7 +104,8 @@ class KeychainCredentials:
     def _success(status: int):
         if status != 0:
             # OS status only; never include query attributes or secret values.
-            raise DeveloperError('CREDENTIAL_STORE_REJECTED', 'macOS Keychain did not permit this credential operation')
+            raise DeveloperError('CREDENTIAL_STORE_REJECTED', 'macOS Keychain did not permit this credential operation',
+                                 data={'os_status': int(status)})
 
     def store(self, account: str, secret: str) -> str:
         query, allocations = self._query(account, secret=secret)

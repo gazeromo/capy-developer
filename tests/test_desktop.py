@@ -654,6 +654,7 @@ class SetupTests(unittest.TestCase):
             with self.assertRaises(DeveloperError) as result:
                 store.store(account, canary)
         self.assertEqual(result.exception.code, 'CREDENTIAL_STORE_REJECTED')
+        self.assertEqual(result.exception.result()['error']['os_status'], -25293)
         self.assertNotIn(canary, str(result.exception))
 
 
