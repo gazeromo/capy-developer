@@ -61,6 +61,12 @@ def start_sync(config=None) -> None:
                      start_new_session=True, close_fds=True, env=environment)
 
 
+def report_interval(handoff_count: int, failures: int) -> float:
+    # Each sweep authenticates once per handoff. Reserve capacity within the
+    # site's 300 requests / ten minutes for foreground tools and other work.
+    return max(4 * handoff_count, min(60, 5 * 2 ** min(failures, 4)))
+
+
 def synchronize(companion: Companion, handoff_id=None) -> dict:
     # One per-installation reporter, bounded to eight hours and ten offline attempts.
     # It starts only after an explicit local open, never at OS boot or from remote jobs.
@@ -87,7 +93,7 @@ def synchronize(companion: Companion, handoff_id=None) -> dict:
             retry_pending = any(row['pending'] and row['sync_error'] not in permanent_errors for row in rows)
             if not active and not retry_pending:
                 return result
-            time.sleep(min(60, 5 * 2 ** min(failures, 4)) + random.uniform(0, 2))
+            time.sleep(report_interval(len(rows), failures) + random.uniform(0, 2))
         return {'ok': True, 'status': 'SYNC_WINDOW_ENDED', 'source_retained': True}
 
 
