@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 from pathlib import Path
 import platform
 import shlex
@@ -43,14 +44,36 @@ def prepare(config, handoff_id, adapter):
     private_directory(directory)
     script = directory / 'resume.py'
     launcher = directory / ('Continue in ' + ('Muse' if adapter == 'muse' else 'Codex') + '.command')
-    payload = ('import os\nos.environ.update(' + repr(roots(config)) + ')\n'
+    receipt = directory / 'packet.json'
+    profile_keys = ('HOME', 'CODEX_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME')
+    existing = None
+    if receipt.exists() or receipt.is_symlink():
+        try:
+            existing = json.loads(read_owned(receipt))
+        except (ValueError, TypeError):
+            require(False, 'WORK_RESUME_CONFLICT', 'invalid continuation ownership')
+        require(isinstance(existing, dict), 'WORK_RESUME_CONFLICT', 'invalid continuation ownership')
+    # Replays retain the original profile, even when launched from another shell.
+    # Legacy packets remain byte-identical; never upgrade an existing launcher.
+    environment = (existing.get('client_environment', {}) if existing is not None else
+                   {key: os.environ[key] for key in profile_keys if os.environ.get(key)})
+    require(isinstance(environment, dict) and set(environment) <= set(profile_keys),
+            'WORK_RESUME_CONFLICT', 'invalid client profile paths')
+    require(all(isinstance(value, str) and len(value) < 4096 and Path(value).is_absolute()
+                for value in environment.values()), 'WORK_RESUME_CONFLICT', 'invalid client profile paths')
+    environment = {key: environment[key] for key in profile_keys if key in environment}
+    profile_prelude = (('for key in ' + repr(profile_keys) + ': os.environ.pop(key, None)\n')
+                       if existing is None or 'client_environment' in existing else '')
+    payload = ('import os\n' + profile_prelude + 'os.environ.update(' + repr({**environment, **roots(config)}) + ')\n'
                'from capy_developer.cli import main\n'
                'raise SystemExit(main(' + repr(['work', 'resume', '--handoff-id', handoff_id]) + '))\n').encode()
     shell = ('#!/bin/sh\nexec ' + shlex.join([sys.executable, str(script)]) + '\n').encode()
     files = {script: payload, launcher: shell}
-    receipt = directory / 'packet.json'
-    recorded = canonical({'schema': 'capy.workspace-resume/v0', 'handoff_id': handoff_id,
-                          'adapter': adapter, 'files': {str(p): hashlib.sha256(v).hexdigest() for p, v in files.items()}})
+    record = {'schema': 'capy.workspace-resume/v0', 'handoff_id': handoff_id,
+                          'adapter': adapter, 'files': {str(p): hashlib.sha256(v).hexdigest() for p, v in files.items()}}
+    if existing is None or 'client_environment' in existing:
+        record['client_environment'] = environment
+    recorded = canonical(record)
     if receipt.exists() or receipt.is_symlink():
         require(read_owned(receipt) == recorded, 'WORK_RESUME_CONFLICT', 'continuation ownership changed')
     else:
