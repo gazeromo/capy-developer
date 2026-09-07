@@ -436,6 +436,7 @@ class SetupTests(unittest.TestCase):
         for inside in (True, False):
             with self.subTest(inside=inside):
                 self.config.write_text(self.original)
+                original_bytes = self.config.read_bytes()
                 self.setup.install(native=False)
                 approval = b'[mcp_servers.capy_developer.tools.capy_client_check]\napproval_mode = "approve"\n'
                 raw = self.config.read_bytes()
@@ -445,7 +446,7 @@ class SetupTests(unittest.TestCase):
                 self.setup.install(native=False)
                 self.assertEqual(self.config.read_bytes(), raw)
                 self.setup.remove()
-                self.assertEqual(self.config.read_bytes(), self.original.encode() + approval)
+                self.assertEqual(self.config.read_bytes(), original_bytes + approval)
 
     def test_native_approvals_do_not_hide_modified_owned_command(self):
         self.setup.install(native=False)
