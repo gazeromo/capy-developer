@@ -86,8 +86,17 @@ class HarnessClient:
                            'snapshot':json.loads(handoff['last_snapshot']) if handoff['last_snapshot'] else None})
         return {'ok':True,'work':result}
 
-    def _post(self, site_id, operation, value):
+    @staticmethod
+    def _same_connection(pair, expected):
+        require(all(pair[key] == expected[key] for key in
+                    ('site_id', 'origin', 'installation_id', 'device_id', 'principal_id')),
+                'CLIENT_CONNECTION_REPLACED',
+                'the selected connection changed during registration; inspect its current status before retrying')
+
+    def _post(self, site_id, operation, value, *, expected_pair=None):
         pair = self.companion._approved(site_id)
+        if expected_pair is not None:
+            self._same_connection(pair, expected_pair)
         return self.companion.transport.post(pair['origin'], '/api/developer-link/harness-v0/' + operation,
             {'site_id': site_id, 'device_id': pair['device_id'], **value}, pair['secret'])
 
@@ -144,12 +153,12 @@ class HarnessClient:
         require(pair['state'] == 'APPROVED' and pair['expires_at'] > self.companion.clock(),
                 'SITE_NOT_PAIRED', 'restore this existing site connection through its normal approval before registering a client')
         version = observed_client_version(value['client'])
-        result = self.connect(pair['origin'], value['client'], version, 'MCP_STDIO', existing_site_id=value['site_id'], existing_installation_id=pair['installation_id'])
+        result = self.connect(pair['origin'], value['client'], version, 'MCP_STDIO', existing_site_id=value['site_id'], existing_installation_id=pair['installation_id'], existing_pair=pair)
         if result['status'] == 'CONFIGURED_WAITING_FOR_TOOL_CHECK':
             return {**result, 'next_action': {'tool': 'capy_client_check', 'arguments': {'client_id': result['client_id']}}}
         return result
 
-    def connect(self, site, adapter, version, transport='JSON_CLI', *, existing_site_id=None, existing_installation_id=None):
+    def connect(self, site, adapter, version, transport='JSON_CLI', *, existing_site_id=None, existing_installation_id=None, existing_pair=None):
         origin(site)
         require(adapter in ('muse', 'codex'), 'CLIENT_UNSUPPORTED', 'choose a supported coding client')
         require(transport in ('JSON_CLI', 'MCP_STDIO'), 'CLIENT_CHANNEL_INVALID', 'unsupported tool channel')
@@ -165,6 +174,8 @@ class HarnessClient:
             require(pair['origin'] == site, 'PAIR_ORIGIN_CONFLICT', 'the existing site origin changed during registration')
             require(pair['installation_id'] == existing_installation_id, 'CLIENT_CONNECTION_REPLACED',
                     'the selected connection changed during registration; inspect its current status before retrying')
+            if existing_pair is not None:
+                self._same_connection(pair, existing_pair)
         else:
             pairs = {p['site_id']:p for p in self.companion.connections()}
             if site_id in pairs and pairs[site_id]['state'] in ('PENDING','STARTING') and pairs[site_id]['expires_at'] > self.companion.clock():
@@ -173,13 +184,18 @@ class HarnessClient:
                 pair = self.companion.pair_start(site, site_id)
         if pair.get('state', pair.get('status')) != 'APPROVED':
             return {'ok':True, 'status':'WAITING_FOR_ACCOUNT_APPROVAL', 'connection':pair, 'ready':False}
-        status = self._post(site_id, 'status', {})
+        guards = {'expected_pair': existing_pair} if existing_pair is not None else {}
+        status = self._post(site_id, 'status', {}, **guards)
+        if existing_pair is not None:
+            self._same_connection(self.companion._approved(site_id), existing_pair)
         if not status.get('approved'):
             expected = '/developer/connections/' + pair['device_id'] + '/work'
             require(status.get('approval_path') == expected, 'LINK_RESPONSE_INVALID', 'invalid approval path')
             return {'ok':True, 'status':'WAITING_FOR_WORK_APPROVAL', 'approval_url':site + expected, 'ready':False}
-        pair = self.companion._approved(site_id)
         with self.companion._lock(), self.companion.state.connect() as db:
+            pair = self.companion._approved(site_id)
+            if existing_pair is not None:
+                self._same_connection(pair, existing_pair)
             # A newly configured channel is a separate observed client instance.
             # Keep the old channel's identity/history under the same computer.
             key = adapter
@@ -195,7 +211,9 @@ class HarnessClient:
                            (site_id, key, pair['installation_id'], 'cli_' + secrets.token_hex(16), version, transport))
             row = dict(db.execute('SELECT * FROM harness_clients WHERE site=? AND adapter=?', (site_id, key)).fetchone())
         challenge = self._post(site_id, 'register', {'client_id':row['client'], 'label':'Muse Code' if adapter == 'muse' else 'Codex',
-                                                  'version':version, 'transport':transport})
+                                                  'version':version, 'transport':transport}, **guards)
+        if existing_pair is not None:
+            self._same_connection(self.companion._approved(site_id), existing_pair)
         require(set(challenge) == {'client_id','nonce','expires_at'} and challenge['client_id'] == row['client']
                 and isinstance(challenge['nonce'], str) and bool(re.fullmatch(r'[0-9a-f]{64}', challenge['nonce']))
                 and type(challenge['expires_at']) is int, 'CLIENT_CHALLENGE_INVALID', 'invalid site client challenge')

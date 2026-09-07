@@ -28,7 +28,7 @@ def test_legacy_pair_registration_keeps_authority_and_does_not_pair(legacy, monk
     pair_before = case.companion.state.pair_record(SITE)
     harness = HarnessClient(case.core, companion=case.companion)
     calls = []
-    def post(site, operation, value):
+    def post(site, operation, value, **kwargs):
         calls.append(operation)
         if operation == 'status':
             return {'approved': True}
@@ -53,7 +53,7 @@ def test_legacy_pair_registration_keeps_authority_and_does_not_pair(legacy, monk
 def test_existing_registration_preserves_human_scope_approval(legacy, monkeypatch):
     case = legacy
     harness = HarnessClient(case.core, companion=case.companion)
-    monkeypatch.setattr(harness, '_post', lambda *args: {'approved': False, 'approval_path': '/developer/connections/'+DEVICE+'/work'})
+    monkeypatch.setattr(harness, '_post', lambda *args, **kwargs: {'approved': False, 'approval_path': '/developer/connections/'+DEVICE+'/work'})
     result = harness.register_existing({'site_id': SITE, 'client': 'codex'})
     assert result == {'ok': True, 'status': 'WAITING_FOR_WORK_APPROVAL',
                       'approval_url': 'https://capy.example/developer/connections/'+DEVICE+'/work', 'ready': False}
@@ -152,3 +152,33 @@ def test_replaced_connection_during_registration_is_not_adopted(legacy):
         harness.register_existing({'site_id': SITE, 'client': 'codex'})
     with case.companion.state.connect() as db:
         assert db.execute('SELECT count(*) FROM harness_clients').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('field,replacement', [('installation_id', '9'*32), ('device_id', 'dev_'+'9'*32), ('origin', 'https://replacement.example'), ('principal_id', 'replacement')])
+def test_status_time_pair_replacement_fails_before_registration(legacy, field, replacement):
+    case = legacy
+    harness = HarnessClient(case.core, companion=case.companion)
+    calls = []
+    def post(site, path, payload, secret):
+        calls.append(path)
+        assert path.endswith('/status')
+        with case.companion.state.connect() as db:
+            db.execute('UPDATE pairs SET '+field+'=? WHERE site_id=?', (replacement, SITE))
+        return {'approved': True}
+    case.transport.post = post
+    with pytest.raises(DeveloperError, match='connection changed'):
+        harness.register_existing({'site_id': SITE, 'client': 'codex'})
+    assert len(calls) == 1
+    with case.companion.state.connect() as db:
+        assert db.execute('SELECT count(*) FROM harness_clients').fetchone()[0] == 0
+
+
+def test_registration_transport_does_not_adopt_replacement_pair(legacy):
+    case = legacy
+    harness = HarnessClient(case.core, companion=case.companion)
+    expected = case.companion._approved(SITE)
+    with case.companion.state.connect() as db:
+        db.execute('UPDATE pairs SET installation_id=? WHERE site_id=?', ('9'*32, SITE))
+    case.transport.post = lambda *args: pytest.fail('replacement authority must never receive registration')
+    with pytest.raises(DeveloperError, match='connection changed'):
+        harness._post(SITE, 'register', {}, expected_pair=expected)

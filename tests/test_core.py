@@ -458,7 +458,7 @@ class CoreTestCase(unittest.TestCase):
     def test_mcp_lists_verify_tool_with_foundation_tools(self):
         response = handle(self.core, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         self.assertEqual(
-            ["capy_connection_contracts", "capy_developer_status", "capy_work_reopen", "capy_candidate_pending", "capy_candidate_send", "capy_work_sync", "capy_client_status", "capy_client_check", "capy_work_begin", "capy_development_attach", "capy_development_continue", "capy_projects_search", "capy_development_start", "capy_development_inspect", "capy_development_finish", "capy_development_verify", "capy_release_candidate_create", "capy_release_candidate_inspect"],
+            ["capy_client_register_existing", "capy_connection_contracts", "capy_developer_status", "capy_work_reopen", "capy_candidate_pending", "capy_candidate_send", "capy_work_sync", "capy_client_status", "capy_client_check", "capy_work_begin", "capy_development_attach", "capy_development_continue", "capy_projects_search", "capy_development_start", "capy_development_inspect", "capy_development_finish", "capy_development_verify", "capy_release_candidate_create", "capy_release_candidate_inspect"],
             [tool["name"] for tool in response["result"]["tools"]],
         )
         start = next(tool for tool in response["result"]["tools"] if tool["name"] == "capy_development_start")
