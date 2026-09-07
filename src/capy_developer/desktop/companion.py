@@ -177,13 +177,19 @@ class Companion:
                 matches=[json.loads(r['input']) for r in pending if json.loads(r['request'])['handoff_id']==request['handoff_id']]
                 require(len(matches)<=1,'HANDOFF_CONFLICT','multiple local objectives name this handoff')
                 if matches:
-                    saved={k:matches[0][k] for k in ('request','new','existing') if k in matches[0]}
+                    saved={k:matches[0][k] for k in ('request','new','existing','session_id') if k in matches[0]}
                     require(local_request is None or local_request==saved,'HANDOFF_CONFLICT','local objective differs from its durable intent')
                     local_request=saved
                 if request['intent']=='EXISTING':
-                    require(local_request is None or local_request.get('existing')=={'project_id':request['project_id']},
+                    require(local_request is None or (local_request.get('existing')=={'project_id':request['project_id']} or 'session_id' in local_request),
                             'HANDOFF_CONFLICT','local existing-project selection differs from its request')
-                if local_request is not None and request['intent'] in ('NEW','EXISTING'):
+                if local_request is not None and 'session_id' in local_request:
+                    require(request['intent'] == 'EXISTING' and request['parent_handoff_id'] is None,
+                            'HANDOFF_CONFLICT', 'session linking requires an existing-project site claim')
+                    prepared = self.existing_session(local_request['session_id'], handoff_id=request['handoff_id'])
+                    require(prepared['project']['project_id'] == request['project_id'],
+                            'HANDOFF_CONFLICT', 'selected session differs from the claimed project')
+                elif local_request is not None and request['intent'] in ('NEW','EXISTING'):
                     prepared = self.core.start_development({**local_request,
                         'idempotency_key': 'handoff:' + request['site_id'] + ':' + request['handoff_id']})
                 else:
@@ -212,6 +218,20 @@ class Companion:
             self._enqueue(request['handoff_id'])
         self.sync_once(request['handoff_id'])
         return self.inspect(request['handoff_id'])
+
+    def existing_session(self, session_id, *, handoff_id=None):
+        """Revalidate an explicit unlinked session without allocating or editing it."""
+        require(isinstance(session_id, str) and bool(session_id),
+                'WORK_SESSION_INVALID', 'provide an exact existing session_id')
+        result = self.core.inspect_development(session_id)
+        self._usable(result)
+        require(result['workspace'].get('dirty') is False,
+                'WORK_SESSION_DIRTY', 'commit or resolve the selected session changes before linking it')
+        with self.state.connect() as db:
+            linked = db.execute('SELECT handoff_id FROM handoffs WHERE session_id=?', (session_id,)).fetchall()
+        require(all(row['handoff_id'] == handoff_id for row in linked),
+                'WORK_SESSION_ALREADY_LINKED', 'continue this session through its existing linked handoff')
+        return result
 
     def _prepare(self, request: dict, *, brief: str | None = None) -> dict:
         key = 'handoff:' + request['site_id'] + ':' + request['handoff_id']

@@ -30,3 +30,23 @@ For example:
 For an existing application, replace `new` with exactly one catalog selector such
 as `"existing":{"application_id":"weather-viewer"}`. Missing intent, both
 intents, unknown fields, or ambiguous catalog selection fail closed.
+
+## Resume an existing unlinked session for publication
+
+Use `capy_work_begin` (or `capy-dev work begin`) with exactly `client_id`,
+`intent_id`, `request`, and `session_id`. The explicit session selector links the
+same clean READY managed session through the normal approved connection and site
+claim. It creates neither a project nor a development session. Durable intent
+replay retains the same handoff; another existing handoff, a terminal or dirty
+workspace, and a mismatched claimed project are refused. Use the original linked
+handoff when one already exists.
+
+V1 verification and candidate responses include one `next_action`. Passed
+verification points to candidate creation. An unlinked candidate points to linking
+its existing READY session; an ended unlinked session points to exact candidate
+continuation in the same project. A linked candidate includes its exact handoff
+and review URL, with normal status sync, website approval and native source
+consent still required. Expired or replaced connections require restoration.
+These are local continuation instructions, not proof of site acceptance,
+publication or installation. V0 responses and immutable V1 candidate bytes are
+unchanged.

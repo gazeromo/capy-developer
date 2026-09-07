@@ -648,13 +648,62 @@ class DeveloperCore:
         }
 
     def verify_development(self, payload: dict) -> dict:
-        return self.verifications.verify(payload)
+        return self._publication_action(self.verifications.verify(payload))
 
     def create_release_candidate(self, verification_id: str) -> dict:
-        return self.release_candidates.create(verification_id)
+        return self._publication_action(self.release_candidates.create(verification_id))
 
     def inspect_release_candidate(self, release_candidate_id: str) -> dict:
-        return self.release_candidates.inspect(release_candidate_id)
+        return self._publication_action(self.release_candidates.inspect(release_candidate_id))
+
+    def _publication_action(self, result: dict) -> dict:
+        # Guidance is an outer response projection, never immutable evidence bytes.
+        schema = result.get('schema', '')
+        if schema not in {'capy.development-verification-result/v1', 'capy.development-release-candidate-result/v1'}:
+            return result
+        result = dict(result)
+        if schema == 'capy.development-verification-result/v1':
+            result['next_action'] = ({'action': 'CREATE_RELEASE_CANDIDATE', 'verification_id': result['verification_id'],
+                                      'detail': 'Create the exact candidate from this passed verification.'}
+                                     if result.get('status') == 'PASSED' else
+                                    {'action': 'REPAIR_VERIFICATION', 'detail': 'Resolve the reported verification failure and verify the exact clean commit again.'})
+            return result
+        if not result.get('ok'):
+            result['next_action'] = {'action': 'REPAIR_CANDIDATE', 'detail': 'Resolve the reported candidate failure before publication.'}
+            return result
+        result['next_action'] = {'action': 'LINK_EXISTING_SESSION', 'session_id': result.get('session_id'),
+                                 'detail': 'Use capy_work_begin with this existing session_id and the configured client_id to link the same clean READY session, then inspect this candidate again. Do not create another app.'}
+        try:
+            from .desktop.state import State
+            state = State(self.config.data_root / 'desktop', read_only=True)
+            with state.connect() as db:
+                rows = db.execute("""SELECT h.handoff_id,p.origin,p.state,p.expires_at,h.pair_installation_id,p.installation_id
+                    FROM handoffs h LEFT JOIN pairs p ON h.site_id=p.site_id
+                    WHERE h.session_id=?""",
+                    (result.get('session_id'),)).fetchall()
+            import time
+            recorded_links = bool(rows)
+            rows = [row for row in rows if row['state'] == 'APPROVED' and row['expires_at'] > time.time() and row['pair_installation_id'] == row['installation_id']]
+            if len(rows) == 1:
+                result['next_action'] = {'action': 'REVIEW_AND_APPROVE_SOURCE_SEND', 'handoff_id': rows[0]['handoff_id'],
+                    'review_url': rows[0]['origin'] + '/developer/requests/' + rows[0]['handoff_id'],
+                    'detail': 'Call capy_work_sync for this handoff, open this linked review, approve the exact candidate source send, then use capy_candidate_send with this handoff_id and complete the native disclosure confirmation. Site checks, preview and installation remain separate human actions.'}
+            elif len(rows) > 1:
+                result['next_action'] = {'action': 'SELECT_EXISTING_HANDOFF',
+                    'detail': 'Select the existing handoff for this candidate session before approving source send; do not create another app.'}
+            elif recorded_links:
+                result['next_action'] = {'action': 'RESTORE_EXISTING_CONNECTION',
+                    'detail': 'Restore the existing site connection before source send; retain this exact candidate and session.'}
+        except (DeveloperError, sqlite3.Error):
+            pass
+        if result['next_action']['action'] == 'LINK_EXISTING_SESSION' and hasattr(self, 'db'):
+            with self.db.connect() as db:
+                session = db.execute('SELECT status FROM sessions WHERE session_id=?', (result.get('session_id'),)).fetchone()
+            if session is not None and session['status'] != 'READY':
+                result['next_action'] = {'action': 'CONTINUE_EXACT_CANDIDATE',
+                    'release_candidate_id': result.get('release_candidate_id'),
+                    'detail': 'This unlinked session has ended. Continue this exact candidate in the same project, then link the resulting READY session; do not create another app.'}
+        return result
 
     def _project_summary(self, project: dict) -> dict:
         with self.db.connect() as db:

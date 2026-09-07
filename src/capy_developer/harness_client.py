@@ -221,8 +221,8 @@ class HarnessClient:
     def begin(self, value):
         require(isinstance(value, dict) and set(value) in (
             {'client_id','intent_id','request','new'}, {'client_id','intent_id','request','parent_handoff_id'},
-            {'client_id','intent_id','request','existing'}),
-            'WORK_INPUT_INVALID', 'provide an explicit new app, exact registered project or completed linked handoff')
+            {'client_id','intent_id','request','existing'}, {'client_id','intent_id','request','session_id'}),
+            'WORK_INPUT_INVALID', 'provide exactly one new app, registered project, completed linked handoff or existing READY session')
         require(isinstance(value['intent_id'], str) and bool(re.fullmatch(r'[0-9a-f]{32}', value['intent_id'])),
                 'WORK_INTENT_INVALID', 'invalid durable work intent')
         require(isinstance(value['request'], str) and 0 < len(value['request'].strip()) <= 10000,
@@ -233,6 +233,12 @@ class HarnessClient:
             self.core._normalize_start({'idempotency_key':value['intent_id'], 'request':value['request'], 'new':value['new']})
         parent = value.get('parent_handoff_id')
         project_id=None
+        if 'session_id' in value:
+            with self.companion.state.connect() as db:
+                prior = db.execute('SELECT request FROM harness_work WHERE intent=?', (value['intent_id'],)).fetchone()
+            allowed = json.loads(prior['request'])['handoff_id'] if prior and prior['request'] else None
+            selected = self.companion.existing_session(value['session_id'], handoff_id=allowed)
+            project_id = selected['project']['project_id']
         if 'existing' in value:
             selector=value['existing']
             require(isinstance(selector,dict) and set(selector)=={'project_id'}
@@ -262,7 +268,7 @@ class HarnessClient:
                 'WORK_AUTHORITY_MISMATCH', 'site returned work for another authority')
         with self.companion.state.connect() as db:
             db.execute('UPDATE harness_work SET request=? WHERE intent=?', (canonical(request).decode(), value['intent_id']))
-        local = {k:value[k] for k in ('request','new','existing') if k in value}
+        local = {k:value[k] for k in ('request','new','existing','session_id') if k in value}
         progress = self.companion.prepare_uri(make_uri(row['site'], request['handoff_id'], request['launch_generation']), local_request=local)
         handoff = self.companion.state.handoff(request['handoff_id'])
         development = self.core.inspect_development(handoff['session_id'])

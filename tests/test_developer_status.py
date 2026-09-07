@@ -28,7 +28,9 @@ def test_actual_mcp_list_and_fail_closed_start(tmp_path):
     assert 'oneOf' not in start['inputSchema']
     assert set(start['inputSchema']['properties']) == {'request', 'idempotency_key', 'existing', 'new'}
     assert 'Example:' in start['description']
-    assert 'oneOf' not in next(t for t in tools if t['name'] == 'capy_work_begin')['inputSchema']
+    work_schema = next(t for t in tools if t['name'] == 'capy_work_begin')['inputSchema']
+    assert 'oneOf' not in work_schema
+    assert 'session_id' in work_schema['properties']
     assert all(r['isError'] and 'PROJECT_INTENT_INVALID' in json.dumps(r) for r in responses[1:3])
     state = responses[3]['structuredContent']
     assert state['toolset_sha256'] == hashlib.sha256(json.dumps(tools, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
