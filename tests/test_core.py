@@ -519,7 +519,7 @@ class CliProcessTests(unittest.TestCase):
             )
             lines = [json.loads(line) for line in mcp.stdout.splitlines()]
             self.assertEqual([1, 2, 3], [line["id"] for line in lines])
-            self.assertEqual(18, len(lines[1]["result"]["tools"]))
+            self.assertEqual(19, len(lines[1]["result"]["tools"]))
             self.assertEqual("READY", lines[2]["result"]["structuredContent"]["status"])
             self.assertEqual("", mcp.stderr)
             self.assertEqual(list(unrelated.iterdir()), [])
