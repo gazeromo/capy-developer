@@ -431,6 +431,35 @@ class SetupTests(unittest.TestCase):
         self.setup.remove()
         self.assertEqual(self.config.read_bytes(), (self.original + extra).encode())
 
+    def test_native_tool_approvals_preserved_on_replay_and_removal(self):
+        from capy_developer.desktop.setup import END
+        for inside in (True, False):
+            with self.subTest(inside=inside):
+                self.config.write_text(self.original)
+                self.setup.install(native=False)
+                approval = b'[mcp_servers.capy_developer.tools.capy_client_check]\napproval_mode = "approve"\n'
+                raw = self.config.read_bytes()
+                raw = raw.replace(END.encode(), approval + END.encode()) if inside else raw + approval
+                self.config.write_bytes(raw)
+                self.assertTrue(self.setup.inspect()['mcp_owned_entry_intact'])
+                self.setup.install(native=False)
+                self.assertEqual(self.config.read_bytes(), raw)
+                self.setup.remove()
+                self.assertEqual(self.config.read_bytes(), self.original.encode() + approval)
+
+    def test_native_approvals_do_not_hide_modified_owned_command(self):
+        self.setup.install(native=False)
+        raw = self.config.read_bytes() + b'[mcp_servers.capy_developer.tools.capy_client_check]\napproval_mode = "approve"\n'
+        raw = raw.replace(b'args = ["-m", "capy_developer", "mcp"]', b'args = ["-m", "foreign"]')
+        self.config.write_bytes(raw)
+        receipt = self.setup.receipt.read_bytes()
+        self.assertFalse(self.setup.inspect()['mcp_owned_entry_intact'])
+        for action in (lambda: self.setup.install(native=False), self.setup.remove):
+            with self.assertRaises(DeveloperError):
+                action()
+            self.assertEqual(self.config.read_bytes(), raw)
+            self.assertEqual(self.setup.receipt.read_bytes(), receipt)
+
     def test_setup_preserves_existing_crlf_bytes(self):
         original = self.original.replace('\n', '\r\n').encode()
         self.config.write_bytes(original)

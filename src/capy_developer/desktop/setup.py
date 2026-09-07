@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import platform
 import plistlib
+import re
 import shutil
 import stat
 import subprocess
@@ -85,14 +86,39 @@ class Setup:
         require(not self.receipt.is_symlink(), 'SETUP_RECEIPT_CONFLICT', 'setup receipt cannot be a symlink')
         return decode_json(self.receipt.read_bytes(), max_bytes=65536)
 
+    def _owned_region(self, config: bytes, block: bytes):
+        """Return owned span and unowned native tool tables, or fail closed."""
+        if config.count(BEGIN.encode()) != 1 or config.count(END.encode()) != 1:
+            return None
+        start = config.index(BEGIN.encode())
+        end = config.index(END.encode()) + len(END.encode())
+        if end <= start:
+            return None
+        expected = tomllib.loads(block.decode())['mcp_servers']['capy_developer']
+        current = dict(tomllib.loads(config.decode()).get('mcp_servers', {}).get('capy_developer', {}))
+        current.pop('tools', None)
+        if current != expected:
+            return None
+        owned, retained = [], []
+        native = False
+        for line in config[start:end].splitlines(keepends=True):
+            stripped = line.strip()
+            if stripped.startswith(b'['):
+                native = bool(re.fullmatch(rb'\[mcp_servers\.capy_developer\.tools\.[A-Za-z0-9_-]+\]', stripped))
+            if line == END.encode():
+                native = False
+            (retained if native else owned).append(line)
+        if b''.join(owned) != block:
+            return None
+        return start, end, b''.join(retained)
+
     def inspect(self) -> dict:
         receipt = self._read()
         if receipt is None:
             return {'ok': True, 'status': 'NOT_INSTALLED', 'platform': platform.system(), 'native_handler_diagnostic': self._diagnostic()}
         config = self._config()
         block = receipt['mcp_block'].encode()
-        owned = (config.count(block) == 1 and config.count(BEGIN.encode()) == 1 and config.count(END.encode()) == 1
-                 and tomllib.loads(config.decode()).get('mcp_servers', {}).get('capy_developer') == tomllib.loads(block.decode())['mcp_servers']['capy_developer'])
+        owned = self._owned_region(config, block) is not None
         handler = receipt.get('handler')
         intact = self._handler_matches(handler) if handler else False
         return {'ok': owned and intact, 'status': receipt['status'], 'mcp_owned_entry_intact': owned,
@@ -150,8 +176,7 @@ class Setup:
                         'SETUP_CONFIG_CONFLICT', 'existing setup belongs to another launcher or config; inspect and remove it first')
             current = tomllib.loads(before.decode()).get('mcp_servers', {}).get('capy_developer')
             if current is not None or BEGIN.encode() in before or END.encode() in before:
-                require(receipt is not None and before.count(block) == 1 and before.count(BEGIN.encode()) == 1 and before.count(END.encode()) == 1
-                        and current == tomllib.loads(block.decode())['mcp_servers']['capy_developer'],
+                require(receipt is not None and self._owned_region(before, block) is not None,
                         'SETUP_CONFIG_CONFLICT', 'the capy_developer MCP entry is not the exact recorded owned entry')
                 after = before
             else:
@@ -331,7 +356,8 @@ application.run()
             block = receipt['mcp_block'].encode()
             # Preflight every owned artifact before mutating any one of them.
             current = tomllib.loads(before.decode()).get('mcp_servers', {}).get('capy_developer')
-            require((before.count(block) == 1 and current == tomllib.loads(block.decode())['mcp_servers']['capy_developer']) or (receipt['status'] == 'REMOVING' and BEGIN.encode() not in before and current is None),
+            region = self._owned_region(before, block)
+            require(region is not None or (receipt['status'] == 'REMOVING' and BEGIN.encode() not in before and (current is None or set(current) == {'tools'})),
                     'SETUP_CONFIG_CONFLICT', 'owned MCP entry changed; preserve it and resolve the conflict')
             handler = receipt.get('handler')
             if handler and Path(handler['path']).exists():
@@ -339,7 +365,7 @@ application.run()
             receipt['status'] = 'REMOVING'
             atomic(self.receipt, canonical(receipt))
             require(self._config() == before, 'SETUP_CONFIG_CONFLICT', 'Codex config changed during removal')
-            after = before.replace(block, b'', 1)
+            after = before[:region[0]] + region[2] + before[region[1]:] if region else before
             tomllib.loads(after.decode())
             atomic(self.config_path, after)
             if handler and Path(handler['path']).exists():
