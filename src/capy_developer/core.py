@@ -6,6 +6,7 @@ import tempfile
 import tomllib
 from pathlib import Path
 
+from . import __version__
 from .config import Config
 from .database import Database, SCHEMA_VERSION
 from .errors import DeveloperError
@@ -55,7 +56,7 @@ class DeveloperCore:
         return {
             "schema": "capy.developer-doctor/v0",
             "ok": True,
-            "version": "0.6.0",
+            "version": __version__,
             "database_schema": SCHEMA_VERSION,
             "git": git_version,
             "roots": {

@@ -4,6 +4,7 @@ import json
 import sys
 from typing import Any
 
+from . import __version__
 from .core import DeveloperCore
 from .errors import DeveloperError
 
@@ -219,7 +220,7 @@ def handle(core: DeveloperCore, message: dict) -> dict | None:
         return _response(request_id, {
             "protocolVersion": "2025-06-18",
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "capy-developer", "version": "0.5.0"},
+            "serverInfo": {"name": "capy-developer", "version": __version__},
         })
     if method == "ping":
         return _response(request_id, {})

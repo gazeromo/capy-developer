@@ -189,7 +189,7 @@ def discover(*, default: Config, config_path: Path, explicit: Config | None = No
     if historical is not None:
         if exists and historical.data_root != default.data_root:
             validate_catalog(default)
-            conflict("multiple recognized installations require an explicit installation selection")
+            conflict("multiple recognized installations conflict; use the configured Capy MCP connection or the exact owned interpreter and its recorded roots, then repair that installation; do not allocate another catalog")
         return {"status": "EXISTING", "source": "HISTORICAL_SETUP", "config": historical}
     if exists:
         validate_catalog(default)
