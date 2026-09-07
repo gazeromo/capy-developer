@@ -1,0 +1,40 @@
+{
+  "schema": "capy.developer-release-qualification/v0",
+  "version": "0.7.0",
+  "source_commit": "069f2e313cc26887c6376863786b2bd42fc40af7",
+  "prior_qualified_wheel_sha256": "75aa6c86a8c492510c2143ec7e239abae61a6aeb3b98fcb6cff8471f04460038",
+  "wheel": {
+    "filename": "capy_developer-0.7.0-py3-none-any.whl",
+    "sha256": "d3b84748356a0ba01b351801f7929695fb5f91fe199b82a439d9cd086c2bb6ef",
+    "size_bytes": 258330,
+    "byte_identical_builds": 2,
+    "source_date_epoch": 315532800,
+    "build": "1.6.0",
+    "setuptools": "84.0.0",
+    "wheel": "0.48.0",
+    "package_source_and_data_members": 46,
+    "all_members_match_source": true
+  },
+  "mcp": {
+    "tool_count": 19,
+    "toolset_sha256": "32b062a589cad92457bb38552db21eac4dbc51a75c3e08764cac219e16cd7e37",
+    "python_source_sha256": "ef96c6b0cbaac8ac1374dbbc040bebf14675e2074420fe6c93e8fde5772be0cb",
+    "isolated_installed_process_full_schema_match": true,
+    "configured_installed_process_full_schema_match": true,
+    "configured_installed_package_matches_wheel": true
+  },
+  "changes": [
+    "Explicit existing-site client registration through configured MCP; normal site approval and native channel check remain authoritative.",
+    "Exact selected pairing identity retained through status and registration, rejecting replacements.",
+    "Specific historical interaction lock rejection of read-only semantic connections exposes an explicit application-source upgrade to the current supported lock; no automatic lock migration."
+  ],
+  "qualification": {
+    "focused_status_core_registration_tests": "passed",
+    "registration_connect_client_tests": 22,
+    "interaction_and_existing_session_tests": 17,
+    "independent_review": "PASS",
+    "working_tree_and_remote_source_match": true
+  },
+  "deployment_scope": "Exact package verified in existing configured interpreter after owner-directed repair; this receipt does not claim fresh builder completion, application publication, bootstrap selection or provider readiness.",
+  "preserved": "Prior wheel receipts and application/project/session/pairing state; no automatic application lock migration."
+}
