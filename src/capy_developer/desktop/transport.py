@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import urllib.error
 import urllib.request
+import ssl
 
 from ..errors import DeveloperError
 from ..link_protocol import canonical, decode_json, origin
@@ -26,7 +27,9 @@ class Transport:
                 if response.geturl() != url:
                     raise DeveloperError('LINK_REDIRECT_REFUSED', 'connection-info redirects are refused')
                 result = decode_json(response.read(4097), max_bytes=4096)
-        except (urllib.error.URLError, TimeoutError, OSError):
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            if isinstance(getattr(exc, 'reason', exc), ssl.SSLCertVerificationError):
+                raise DeveloperError('LINK_TLS_UNTRUSTED', 'the site certificate could not be verified; configure trusted certificates without disabling TLS verification') from None
             raise DeveloperError('LINK_CAPABILITY_UNAVAILABLE', 'the site connection guide is unavailable; check its supported version') from None
         if not isinstance(result, dict):
             raise DeveloperError('LINK_RESPONSE_INVALID', 'invalid site connection information')
@@ -54,7 +57,9 @@ class Transport:
                 code = 'LINK_REDIRECT_REFUSED'
             # Never echo server text, request headers, or credential-bearing URLs.
             raise DeveloperError(code, 'the paired site rejected this developer-link operation') from None
-        except (urllib.error.URLError, TimeoutError, OSError):
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            if isinstance(getattr(exc, 'reason', exc), ssl.SSLCertVerificationError):
+                raise DeveloperError('LINK_TLS_UNTRUSTED', 'the site certificate could not be verified; configure trusted certificates without disabling TLS verification') from None
             raise DeveloperError('LINK_OFFLINE', 'the paired site could not be reached') from None
         if not isinstance(result, dict):
             raise DeveloperError('LINK_RESPONSE_INVALID', 'site response must be an object')
