@@ -115,6 +115,10 @@ def launch(harness, handoff_id, *, runner=None):
     prompt = ('Continue the existing linked Capy work in this managed workspace. Read CAPY.md and '
               '.capy-local/handoff.json; attach through capy_development_attach using handoff ' + handoff_id +
               '. Preserve this session and project. User objective: ' + objective +
+              '\nThis workspace has already been allocated for that request. Do not repeat its '
+              'connection, project selection, or continuation preparation by starting another session. '
+              'If the objective only asks to prepare or open a workspace and stop before editing, '
+              'attach to this exact session, inspect it, sync its status, report readiness, and stop. '
               '\nUse normal native edits and Git approvals. Verify the exact full commit, repair failures, '
               'create a candidate only after verification passes, then finish and call capy_work_sync '
               'to confirm acknowledgment and return the review URL. Source sending, acceptance and '
