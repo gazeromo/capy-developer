@@ -32,15 +32,22 @@ def test_muse_only_then_codex_share_owned_guidance_and_catalog(tmp_path):
 def test_foreign_guidance_and_foreign_mcp_fail_before_shared_writes(tmp_path):
     installer = setup(tmp_path)
     installer.codex_config.write_text('[mcp_servers.capy_developer]\ncommand="foreign"\n')
+    foreign = installer.codex_config.read_bytes()
+    catalog = installer.core.config.database.read_bytes()
     with pytest.raises(DeveloperError):
         installer.install('codex')
     assert not installer.locator.exists()
     assert not installer.skills.exists()
+    assert installer.codex_config.read_bytes() == foreign
+    assert installer.core.config.database.read_bytes() == catalog
     (installer.skills/'capy-development').mkdir(parents=True)
     (installer.skills/'capy-development/SKILL.md').write_text('user-authored')
     with pytest.raises(DeveloperError):
         installer.install('muse')
     assert not installer.locator.exists()
+    assert (installer.skills/'capy-development/SKILL.md').read_text() == 'user-authored'
+    assert installer.codex_config.read_bytes() == foreign
+    assert installer.core.config.database.read_bytes() == catalog
 
 
 def test_modified_owned_guidance_preserved(tmp_path):
@@ -55,6 +62,9 @@ def test_modified_owned_guidance_preserved(tmp_path):
 
 def test_partial_write_replays_only_recorded_owned_content(tmp_path, monkeypatch):
     installer = setup(tmp_path)
+    installer.codex_config.write_text('model="owner-selected"\n')
+    foreign = installer.codex_config.read_bytes()
+    catalog = installer.core.config.database.read_bytes()
     from capy_developer import client_setup
     original = client_setup.atomic
     def failing(path, payload):
@@ -66,6 +76,8 @@ def test_partial_write_replays_only_recorded_owned_content(tmp_path, monkeypatch
         installer.install('muse')
     monkeypatch.setattr(client_setup, 'atomic', original)
     assert installer.install('muse')['status'] == 'CONFIGURED'
+    assert installer.codex_config.read_bytes() == foreign
+    assert installer.core.config.database.read_bytes() == catalog
 
 
 def test_interrupted_codex_config_write_can_resume(tmp_path, monkeypatch):

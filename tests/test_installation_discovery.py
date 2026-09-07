@@ -71,8 +71,10 @@ def test_two_catalogs_require_explicit_selection(tmp_path):
     original, path = installed(tmp_path)
     default = config(tmp_path / "default")
     DeveloperCore(default)
+    before = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
     with pytest.raises(DeveloperError):
         discover(default=default, config_path=path)
+    assert {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()} == before
     assert discover(default=default, config_path=path, explicit=original)["config"] == original
 
 
