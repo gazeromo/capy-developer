@@ -1,0 +1,21 @@
+{
+  "schema": "capy.developer-release-binding/v0",
+  "version": "0.7.0",
+  "implementation_commit": "e7ced8bf8b7ff864f5813aecc48ddf5af5598fb3",
+  "implementation_tree": "0efbe1fb281ad13fb5f0c40e15d7d069fde6b202",
+  "wheel_filename": "capy_developer-0.7.0-py3-none-any.whl",
+  "wheel_sha256": "75aa6c86a8c492510c2143ec7e239abae61a6aeb3b98fcb6cff8471f04460038",
+  "wheel_size_bytes": 256321,
+  "python_source_sha256": "724a2518aaaadb0423b3af54b22605cfd24626e4fef5bbed83f23d5fe8833bd9",
+  "toolset_sha256": "1fd6ceb6181ea06a897e59ff3e0cbcbfc51e4132a5278f0f6bf6d4811a939fe8",
+  "tool_count": 18,
+  "reproducible_builds": 2,
+  "qualification": [
+    "connected V1 verification/inspection/native synthetic send",
+    "frozen old V1 candidate compatibility",
+    "actual configured installation MCP schemas equal source",
+    "fresh Codex first-call arguments correct; same final toolset digest",
+    "full Developer suite with two obsolete tool-list expectations updated and rerun; focused later status and installation tests passed"
+  ],
+  "scope": "Read-only connected authoring and exact publication continuation; no credentials or app-specific provider logic in Developer."
+}
