@@ -31,3 +31,10 @@ and state checks still apply when the tools subsequently run. Reconnect the
 configured MCP process after repair, then verify the tools actually exposed to
 the model and their status digest. An already running process retains its loaded
 code until restarted.
+
+The read-only plan also probes `pip` and `ensurepip` in the exact owned
+interpreter. Missing `pip` returns `REPAIR_PREREQUISITE_REQUIRED` with the exact
+bundled `ensurepip` action; apply refuses before creating a package snapshot or
+running pip. Enabling this standard-library prerequisite is a separate explicit
+step in the same private interpreter. The repair never installs prerequisites
+silently or falls back to the global CLI.

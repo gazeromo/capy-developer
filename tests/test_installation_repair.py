@@ -17,7 +17,8 @@ from test_installation_discovery import config
 
 
 @pytest.fixture
-def owned_install(tmp_path):
+def owned_install(tmp_path, monkeypatch):
+    monkeypatch.setattr('capy_developer.installation_repair.pip_status', lambda python: {'pip': True, 'ensurepip': True})
     cfg = config(tmp_path / 'state')
     DeveloperCore(cfg)
     venv = tmp_path / 'venv'
@@ -111,3 +112,15 @@ def test_rollback_recovers_interrupted_missing_distribution(owned_install, tmp_p
     with pytest.raises(ManifestError, match='snapshot bytes changed'):
         repair(client, wheel, sha, rollback=True, backup=backup)
     assert '0.6.0' in (site / 'capy_developer/__init__.py').read_text()
+
+
+def test_missing_pip_is_causal_before_backup_or_apply(owned_install, tmp_path, monkeypatch):
+    cfg, venv, site, client, wheel, sha = owned_install
+    monkeypatch.setattr('capy_developer.installation_repair.pip_status', lambda python: {'pip': False, 'ensurepip': True})
+    result = repair(client, wheel, sha)
+    assert result['status'] == 'REPAIR_PREREQUISITE_REQUIRED'
+    assert result['next_action']['argv'] == [str(venv / 'bin/python'), '-I', '-m', 'ensurepip', '--upgrade']
+    assert not result['mutated']
+    with pytest.raises(ManifestError, match='bundled installer'):
+        repair(client, wheel, sha, apply=True, backup=tmp_path / 'never-created', execute=lambda args: pytest.fail('pip must not run'))
+    assert not (tmp_path / 'never-created').exists()

@@ -30,6 +30,19 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def pip_status(python):
+    """Read-only availability probe of the already validated owned interpreter."""
+    script = "import importlib.util,json;print(json.dumps({name:importlib.util.find_spec(name) is not None for name in ('pip','ensurepip')}))"
+    try:
+        result = subprocess.run([str(python), '-I', '-c', script], capture_output=True, text=True, timeout=15, check=True)
+        value = json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        raise ManifestError('the configured interpreter prerequisite check failed; inspect the existing private environment') from None
+    if not isinstance(value, dict) or set(value) != {'pip', 'ensurepip'} or any(type(item) is not bool for item in value.values()):
+        raise ManifestError('the configured interpreter returned an invalid prerequisite status')
+    return value
+
+
 def preflight(config_path, wheel, sha256, *, recovery=False):
     config_path, wheel = Path(config_path), Path(wheel)
     config = historical_config(config_path)
@@ -88,7 +101,8 @@ def preflight(config_path, wheel, sha256, *, recovery=False):
         if '\nName: capy-developer\n' not in '\n' + metadata_text or '\nVersion: ' + __version__ + '\n' not in '\n' + metadata_text:
             raise ManifestError('repair wheel package identity differs')
     return dict(config=config, config_path=config_path, python=python, venv=venv, site=site,
-                package=package, metadata=metadata, script=script, wheel=wheel, raw=raw, sha256=sha256)
+                package=package, metadata=metadata, script=script, wheel=wheel, raw=raw, sha256=sha256,
+                prerequisites={'pip': False, 'ensurepip': False} if recovery else pip_status(python))
 
 
 def package_files(context):
@@ -163,6 +177,15 @@ def repair(config_path, wheel, sha256, *, apply=False, backup=None, rollback=Fal
     plan = dict(schema='capy.installation-repair-plan/v0', status='PLANNED', version=__version__,
                 python=str(context['python']), wheel_sha256=sha256,
                 same_configured_interpreter=True, state_migration=False, mutated=False)
+    if not rollback and not context['prerequisites']['pip']:
+        action = ({'action': 'ENABLE_BUNDLED_PIP',
+                   'argv': [str(context['python']), '-I', '-m', 'ensurepip', '--upgrade'],
+                   'detail': 'The existing private interpreter has no pip. Enable its bundled installer, then repeat this exact repair; no new environment or network download is needed.'}
+                  if context['prerequisites']['ensurepip'] else
+                  {'action': 'RESTORE_PRIVATE_INSTALLER', 'detail': 'The existing private interpreter has neither pip nor ensurepip. Restore its supported installer prerequisite before repeating the exact repair; retain the current configuration and state.'})
+        if apply:
+            raise ManifestError(action['detail'])
+        return {**plan, 'status': 'REPAIR_PREREQUISITE_REQUIRED', 'next_action': action}
     if not apply and not rollback:
         return plan
     if apply and rollback:
