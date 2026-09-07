@@ -657,6 +657,46 @@ class DeveloperCore:
     def inspect_release_candidate(self, release_candidate_id: str) -> dict:
         return self._publication_action(self.release_candidates.inspect(release_candidate_id))
 
+    def _supported_connection_lock_upgrade(self, result):
+        from .toolchain import PREVIOUS_INTERACTION_DEVKIT, TRUSTED_RELEASES
+        toolchain = result.get('toolchain', {})
+        previous = TRUSTED_RELEASES[PREVIOUS_INTERACTION_DEVKIT]
+        if (result.get('status') != 'FAILED' or result.get('classification') != 'INTERACTION_CONTRACT_FAILED'
+                or toolchain.get('release_binding_commit') != PREVIOUS_INTERACTION_DEVKIT
+                or toolchain.get('authoring_bundle_sha256') != previous['bundle_sha256']
+                or toolchain.get('wheel_sha256') != previous['wheel_sha256']):
+            return None
+        stages = {stage['name']: stage for stage in result.get('stages', [])}
+        failed = stages.get('interaction_check', {})
+        if (stages.get('check', {}).get('status') != 'PASSED'
+                or failed.get('status') != 'FAILED' or failed.get('exit_code') != 2
+                or failed.get('stderr') != 'INTERACTION_CONNECTIONS_UNSUPPORTED: connections\n'
+                or failed.get('stdout') != '' or failed.get('facts', {}).get('candidate_unchanged') is not True):
+            return None
+        # Inspect the verified commit's descriptor, never mutable worktree bytes.
+        try:
+            with self.db.connect() as db:
+                session = db.execute('SELECT worktree_path FROM sessions WHERE session_id=?', (result['session_id'],)).fetchone()
+            workspace = Path(session['worktree_path'])
+            commit = result['candidate']['commit']
+            if not isinstance(commit, str) or len(commit) != 40 or any(c not in '0123456789abcdef' for c in commit):
+                return None
+            names = run_git(['ls-tree', '-r', '--name-only', commit], cwd=workspace).splitlines()
+            names = [n for n in names if n == 'capability.toml' or n.endswith('/capability.toml')]
+            if len(names) > 64:
+                return None
+            descriptors = [tomllib.loads(run_git(['show', commit + ':' + n], cwd=workspace)) for n in names]
+            matches = [d for d in descriptors if d.get('id') == result['application_id']]
+            if (len(matches) != 1 or matches[0].get('side_effect') != 'read_only'
+                    or matches[0].get('state_required') is not False or not matches[0].get('connections')):
+                return None
+        except (DeveloperError, OSError, ValueError, TypeError, KeyError, sqlite3.Error):
+            return None
+        lock = {k: v for k, v in current_lock(None).as_dict('BUNDLED').items()
+                if k not in {'lock_source_path', 'lock_status', 'availability', 'detail'}}
+        return {'action': 'UPGRADE_APPLICATION_LOCK', 'file': 'capy.lock', 'current_supported_lock': lock,
+                'detail': 'This exact historical interaction toolchain rejects read-only semantic connections. Explicitly update this application’s capy.lock to the supplied supported lock as an application source change, commit it in the same managed session, then verify the new exact clean commit. No lock was changed automatically; successful verification and publication are still required.'}
+
     def _publication_action(self, result: dict) -> dict:
         # Guidance is an outer response projection, never immutable evidence bytes.
         schema = result.get('schema', '')
@@ -668,6 +708,9 @@ class DeveloperCore:
                                       'detail': 'Create the exact candidate from this passed verification.'}
                                      if result.get('status') == 'PASSED' else
                                     {'action': 'REPAIR_VERIFICATION', 'detail': 'Resolve the reported verification failure and verify the exact clean commit again.'})
+            upgrade = self._supported_connection_lock_upgrade(result)
+            if upgrade is not None:
+                result['next_action'] = upgrade
             return result
         if not result.get('ok'):
             result['next_action'] = {'action': 'REPAIR_CANDIDATE', 'detail': 'Resolve the reported candidate failure before publication.'}

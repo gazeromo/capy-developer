@@ -70,6 +70,34 @@ class InteractionV1Tests(unittest.TestCase):
         run_git(["add", "--all"], cwd=workspace)
         run_git(["commit", "-m", message], cwd=workspace)
 
+    def test_historical_read_only_connection_failure_exposes_explicit_lock_upgrade(self):
+        from capy_developer.toolchain import PREVIOUS_INTERACTION_DEVKIT, PREVIOUS_INTERACTION_BUNDLE, PREVIOUS_INTERACTION_WHEEL
+        session, workspace = self.start()
+        lock = workspace / 'capy.lock'
+        text = lock.read_text().replace(ACCEPTED_DEVKIT_MAIN, PREVIOUS_INTERACTION_DEVKIT).replace(ACCEPTED_BUNDLE_SHA256, PREVIOUS_INTERACTION_BUNDLE).replace(ACCEPTED_WHEEL_SHA256, PREVIOUS_INTERACTION_WHEEL).replace('capy_script_devkit-0.2.0', 'capy_script_devkit-0.1.0')
+        lock.write_text(text)
+        descriptor = workspace / 'capability.toml'
+        descriptor.write_text(descriptor.read_text().replace('connections = []', 'connections = [{name = "lookup", contract = "test.lookup/v1", operations = ["read"], required = true}]'))
+        self.commit(workspace, 'declare read-only connection on historical lock')
+        result = self.verify(session, workspace, 'historical-connected')
+        self.assertEqual('FAILED', result['status'])
+        self.assertEqual('UPGRADE_APPLICATION_LOCK', result['next_action']['action'])
+        self.assertEqual(ACCEPTED_DEVKIT_MAIN, result['next_action']['current_supported_lock']['devkit_commit'])
+        self.assertEqual(text, lock.read_text())
+        self.assertEqual('', run_git(['status', '--porcelain'], cwd=workspace))
+        import copy
+        for altered in ('wheel', 'diagnostic', 'state'):
+            value = copy.deepcopy(result)
+            if altered == 'wheel':
+                value['toolchain']['wheel_sha256'] = '0' * 64
+            elif altered == 'diagnostic':
+                next(s for s in value['stages'] if s['name'] == 'interaction_check')['stderr'] = 'OTHER: connections\n'
+            else:
+                descriptor.write_text(descriptor.read_text().replace('state_required = false', 'state_required = true'))
+                self.commit(workspace, 'stateful candidate is outside upgrade guidance')
+                value['candidate']['commit'] = run_git(['rev-parse', 'HEAD'], cwd=workspace)
+            self.assertEqual('REPAIR_VERIFICATION', self.core._publication_action(value)['next_action']['action'])
+
     def test_artifact_filename_uses_exact_devkit_boundary(self):
         self.assertTrue(_interaction_artifact_name("a" * 128))
         self.assertFalse(_interaction_artifact_name("a" * 129))

@@ -44,7 +44,11 @@ as one explicit action. It reopens the same client with the saved objective; do 
 run it silently or ask the user to reconstruct a command or copy session IDs.
 Preserve the user's objective. Attach the returned handoff through
 `development attach` once the client is working there. Do not select a repository,
-initialize Git, substitute a toolchain, or silently take over active work.
+initialize Git, substitute an arbitrary toolchain, or silently take over active work.
+If verification returns UPGRADE_APPLICATION_LOCK, explicitly update the app’s
+capy.lock to its supplied current_supported_lock as an application source change,
+commit it in the same session, and verify that exact clean commit again. This is
+a supported upgrade; preserved historical locks are never migrated automatically.
 
 Write ordinary application code and tests. Commit exact source through normal
 Git approvals. Run authoritative `development verify` for that commit. A failed
