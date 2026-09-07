@@ -38,6 +38,7 @@ def parser() -> argparse.ArgumentParser:
     root = JsonArgumentParser(prog="capy-dev")
     commands = root.add_subparsers(dest="command", required=True)
     commands.add_parser("doctor")
+    commands.add_parser("developer-status").add_argument("--session-id")
     commands.add_parser("installation").add_subparsers(dest="installation_command", required=True).add_parser("inspect")
     connect = commands.add_parser("connect")
     connect.add_argument("--site", required=True)
@@ -106,6 +107,15 @@ def run(arguments: list[str] | None = None) -> dict | None:
     if args.command == "mcp":
         serve()
         return None
+    if args.command == "developer-status":
+        import os
+        from .config import Config
+        from .installation import discover, locator_path, ROOT_KEYS
+        from .developer_status import status
+        current = Config.from_environment()
+        found = discover(default=current, explicit=current if all(k in os.environ for k in ROOT_KEYS) else None,
+                         config_path=Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml", locator=locator_path())
+        return status(found["config"], {"session_id": args.session_id} if args.session_id else {})
     if args.command == "installation":
         import os
         from .config import Config
