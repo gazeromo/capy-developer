@@ -10,6 +10,7 @@ import time
 from . import __version__
 from .errors import DeveloperError
 from .installation import validate_catalog
+from .toolchain import current_lock
 
 
 def status(config, arguments=None):
@@ -25,6 +26,8 @@ def status(config, arguments=None):
         digest.update(path.read_bytes() + b'\0')
     result = {'schema': 'capy.developer-status/v0', 'ok': True,
               'build': {'version': __version__, 'python_source_sha256': digest.hexdigest()},
+              'current_authoring_toolchain': {k: v for k, v in current_lock(None).as_dict('BUNDLED').items() if k not in {'lock_source_path', 'detail'}},
+              'authoring_compatibility': 'The current bundled release supports read-only semantic connections with interaction V1. Existing projects retain their declared capy.lock until explicitly updated as an application source change.',
               'toolset_sha256': hashlib.sha256(json.dumps(TOOLS, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
               'installation': {'status': 'UNAVAILABLE'}, 'sites': [], 'clients': [],
               'session': {'status': 'NOT_REQUESTED'}, 'remote_status': 'NOT_CHECKED',

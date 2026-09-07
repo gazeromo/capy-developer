@@ -35,6 +35,10 @@ def test_actual_mcp_list_and_fail_closed_start(tmp_path):
     state = responses[3]['structuredContent']
     assert state['toolset_sha256'] == hashlib.sha256(json.dumps(tools, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     assert state['remote_status'] == 'NOT_CHECKED'
+    from capy_developer.toolchain import ACCEPTED_DEVKIT_MAIN
+    assert state['current_authoring_toolchain']['devkit_commit'] == ACCEPTED_DEVKIT_MAIN
+    assert state['current_authoring_toolchain']['wheel'] == 'capy_script_devkit-0.2.0-py3-none-any.whl'
+    assert 'lock_source_path' not in state['current_authoring_toolchain']
     assert str(cfg.data_root) not in json.dumps(state)
 
 
