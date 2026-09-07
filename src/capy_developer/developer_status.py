@@ -48,7 +48,8 @@ def status(config, arguments=None):
         state = State(config.data_root / 'desktop', read_only=True)
         with state.connect() as db:
             pairs = db.execute('SELECT site_id,origin,installation_id,state,expires_at FROM pairs ORDER BY site_id').fetchall()
-            clients = db.execute('SELECT site,adapter,installation,client,version,transport FROM harness_clients ORDER BY site,adapter').fetchall()
+            registered = bool(db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='harness_clients'").fetchone())
+            clients = db.execute('SELECT site,adapter,installation,client,version,transport FROM harness_clients ORDER BY site,adapter').fetchall() if registered else []
             handoffs = (db.execute('SELECT handoff_id FROM handoffs WHERE session_id=? ORDER BY handoff_id', (arguments['session_id'],)).fetchall() if 'session_id' in arguments else [])
     except (DeveloperError, sqlite3.Error):
         result['installation']['connection_status'] = 'UNAVAILABLE'
@@ -65,6 +66,10 @@ def status(config, arguments=None):
         result['next_action'] = 'Multiple active site connections are recorded. Select an existing site and its exact client_id before starting linked work; do not guess or allocate another installation.'
     else:
         result['installation']['connection_status'] = 'NO_ACTIVE_LOCAL_APPROVAL'
+    if not clients and result['sites']:
+        result['installation']['connection_status'] = 'CLIENT_REGISTRATION_REQUIRED'
+        result['next_action'] = 'Register this coding client through the managed setup guide for its existing site; retain the current installation and pairing.'
+        result['client_setup_guides'] = [row['origin'] + '/developer/connect.md' for row in pairs if row['state'] == 'APPROVED' and row['expires_at'] > time.time()]
     if 'session_id' in arguments:
         result['session']['handoff_ids'] = [row['handoff_id'] for row in handoffs]
     return result

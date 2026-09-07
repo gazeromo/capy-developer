@@ -70,3 +70,19 @@ def test_cli_status_uses_same_readonly_surface(tmp_path, monkeypatch):
     monkeypatch.setattr(installation, 'discover', lambda **kwargs: {'status': 'EXISTING', 'config': cfg})
     monkeypatch.setattr(cli, 'DeveloperCore', lambda *args: (_ for _ in ()).throw(AssertionError('no initialization')))
     assert cli.run(['developer-status']) == status(cfg)
+
+
+def test_paired_legacy_installation_retains_safe_site_without_client_table(tmp_path):
+    from capy_developer.desktop.state import State
+    cfg = config(tmp_path / 'owned')
+    DeveloperCore(cfg)
+    state = State(cfg.data_root / 'desktop', credential_store=FileCredentials(test_owned=True))
+    with state.connect() as db:
+        db.execute('INSERT INTO pairs VALUES (?,?,?,?,NULL,NULL,NULL,?,?,?)', ('site_' + '1'*32, 'https://example.test', '1'*32, 'SECRET_SENTINEL', 9999999999, 'APPROVED', 'Example'))
+    before = state.path.read_bytes()
+    result = status(cfg)
+    assert result['installation']['installation_id'] == '1'*32
+    assert result['installation']['connection_status'] == 'CLIENT_REGISTRATION_REQUIRED'
+    assert result['client_setup_guides'] == ['https://example.test/developer/connect.md']
+    assert 'SECRET_SENTINEL' not in json.dumps(result)
+    assert before == state.path.read_bytes()
