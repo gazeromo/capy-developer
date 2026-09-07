@@ -522,6 +522,7 @@ class CliProcessTests(unittest.TestCase):
             self.assertEqual(16, len(lines[1]["result"]["tools"]))
             self.assertEqual("READY", lines[2]["result"]["structuredContent"]["status"])
             self.assertEqual("", mcp.stderr)
+            self.assertEqual(list(unrelated.iterdir()), [])
 
     def test_invalid_cli_arguments_return_json(self):
         completed = subprocess.run(
